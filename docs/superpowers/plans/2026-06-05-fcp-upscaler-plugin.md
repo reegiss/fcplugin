@@ -26,6 +26,7 @@ AIUpscaler/                           ← Xcode project root
 │   ├── Tiling/
 │   │   └── TileProcessor.swift
 │   └── Plugin/
+│       ├── MetalDeviceCache.swift    ← thread-safe MTLDevice + command queue cache
 │       └── UpscalerEffect.swift
 ├── AIUpscalerTests/                  ← Swift Testing target
 │   ├── UpscalerErrorTests.swift
@@ -36,6 +37,12 @@ AIUpscaler/                           ← Xcode project root
 └── scripts/
     └── convert_realesrgan.py         ← one-time model conversion
 ```
+
+> **SDK notes (verified against FxPlug 4.3.4):**
+> - Framework path: `/Library/Developer/Frameworks/FxPlug.framework`
+> - Xcode template: `/Library/Developer/Xcode/Templates/FxPlug/FxPlug 4.xctemplate`
+> - API version to use: `FxParameterCreationAPI_v5`, `FxParameterRetrievalAPI_v6`
+> - `FxImageTile.metalTexture(for: device)` — Swift bridging of `metalTextureForDevice:`
 
 ---
 
@@ -69,7 +76,7 @@ In the `AIUpscaler` target Build Settings:
 
 - [ ] **Step 4: Link FxPlug framework**
 
-Target → General → Frameworks and Libraries → `+` → Add Other → find `/Library/Frameworks/FxPlug.framework`. Set to "Do Not Embed".
+Target → General → Frameworks and Libraries → `+` → Add Other → find `/Library/Developer/Frameworks/FxPlug.framework`. Set to "Do Not Embed".
 
 - [ ] **Step 5: Add Swift Testing test target**
 
@@ -1001,11 +1008,77 @@ git commit -m "feat: add CoreMLUpscaler with RealESRGAN inference and CVPixelBuf
 ## Task 9: UpscalerEffect — FxPlug Integration
 
 **Files:**
+- Create: `AIUpscaler/AIUpscaler/Plugin/MetalDeviceCache.swift`
 - Create: `AIUpscaler/AIUpscaler/Plugin/UpscalerEffect.swift`
 
-> This class cannot be meaningfully unit-tested without the FCP host. Correctness is verified by the manual test in Task 11. Refer to FxPlug 4 SDK headers (`/Library/Frameworks/FxPlug.framework/Headers/`) for exact method signatures if the compiler flags any mismatch.
+> These classes cannot be meaningfully unit-tested without the FCP host. Correctness is verified in Task 11. The real FxPlug 4.3.4 Swift API was verified from headers and template at `/Library/Developer/Xcode/Templates/FxPlug/FxPlug 4.xctemplate/Plugin/PlugIn.swift`.
 
-- [ ] **Step 1: Create UpscalerEffect.swift**
+**Key API facts (verified from SDK):**
+- Init: `required init?(apiManager: PROAPIAccessing)` — FCP injects the API manager
+- Parameters read in `pluginState(_:at:quality:) throws` → serialized as `NSData` → passed to render
+- `FxParameterCreationAPI_v5` for `addPopupMenuWithName:parameterID:...`
+- `FxParameterRetrievalAPI_v6` for `getIntValue(_:fromParameter:at:)` 
+- Get MTLDevice via `MetalDeviceCache.shared.device(forRegistryID: tile.deviceRegistryID)`
+- Get MTLTexture via `tile.metalTexture(for: device)`
+- `kFxPropertyKey_NeedsFullBuffer = true` → FCP gives us the full image, not tiles
+
+- [ ] **Step 1: Create MetalDeviceCache.swift**
+
+Create `AIUpscaler/AIUpscaler/Plugin/MetalDeviceCache.swift`:
+
+```swift
+import Metal
+
+final class MetalDeviceCache {
+
+    static let shared = MetalDeviceCache()
+
+    private struct CacheEntry {
+        let device: MTLDevice
+        var queues: [(queue: MTLCommandQueue, inUse: Bool)]
+    }
+
+    private var cache: [UInt64: CacheEntry] = [:]
+    private let lock = NSLock()
+
+    private init() {
+        for device in MTLCopyAllDevices() {
+            var queues: [(queue: MTLCommandQueue, inUse: Bool)] = []
+            for _ in 0..<4 {
+                if let q = device.makeCommandQueue() { queues.append((q, false)) }
+            }
+            cache[device.registryID] = CacheEntry(device: device, queues: queues)
+        }
+    }
+
+    func device(forRegistryID id: UInt64) -> MTLDevice? {
+        lock.lock(); defer { lock.unlock() }
+        return cache[id]?.device
+    }
+
+    func commandQueue(forRegistryID id: UInt64) -> MTLCommandQueue? {
+        lock.lock(); defer { lock.unlock() }
+        guard var entry = cache[id] else { return nil }
+        for i in entry.queues.indices where !entry.queues[i].inUse {
+            entry.queues[i].inUse = true
+            cache[id] = entry
+            return entry.queues[i].queue
+        }
+        return nil
+    }
+
+    func returnCommandQueue(_ queue: MTLCommandQueue, forRegistryID id: UInt64) {
+        lock.lock(); defer { lock.unlock() }
+        guard var entry = cache[id] else { return }
+        for i in entry.queues.indices where entry.queues[i].queue === queue {
+            entry.queues[i].inUse = false
+        }
+        cache[id] = entry
+    }
+}
+```
+
+- [ ] **Step 2: Create UpscalerEffect.swift**
 
 Create `AIUpscaler/AIUpscaler/Plugin/UpscalerEffect.swift`:
 
@@ -1017,127 +1090,140 @@ import Metal
 @objc(UpscalerEffect)
 final class UpscalerEffect: NSObject, FxTileableEffect {
 
-    // MARK: - Parameter IDs
+    private let apiManager: PROAPIAccessing
 
     private enum ParamID: UInt32 {
-        case scaleFactor  = 1
-        case qualityMode  = 2
+        case scaleFactor = 1
+        case qualityMode = 2
     }
 
-    // MARK: - Engines (one per scale × quality combination)
+    // Packed parameter state passed from pluginState() to render methods.
+    private struct StateData {
+        var scaleFactor: Int32  // 0 = 2x, 1 = 4x
+        var qualityMode: Int32  // 0 = Fast/MPS, 1 = Best/CoreML
+    }
 
     private var engines: [String: any UpscalerEngine] = [:]
 
-    // MARK: - FxTileableEffect — parameter declaration
-
-    func addParameters() throws {
-        guard let api = plugInAPI?.parameterCreationAPI?() else { return }
-
-        try api.addPopupMenu(
-            withName: "Scale Factor",
-            parmId: ParamID.scaleFactor.rawValue,
-            defaultValue: 0,
-            parameterFlags: FxParameterFlags(rawValue: 0),
-            menuEntries: ["2×", "4×"]
-        )
-
-        try api.addPopupMenu(
-            withName: "Quality Mode",
-            parmId: ParamID.qualityMode.rawValue,
-            defaultValue: 0,
-            parameterFlags: FxParameterFlags(rawValue: 0),
-            menuEntries: ["Fast (MPS)", "Best (Core ML)"]
-        )
+    required init?(apiManager: PROAPIAccessing) {
+        self.apiManager = apiManager
+        super.init()
     }
 
-    // MARK: - FxTileableEffect — output size
+    // MARK: - FxTileableEffect — lifecycle
 
-    func destinationImageSize(
-        sourceImages: [FxImageTile],
-        pluginState: Data?,
-        atTime time: CMTime
-    ) -> NSSize {
-        guard let src = sourceImages.first else { return .zero }
-        let factor = scaleFactorValue(atTime: time).rawValue
-        return NSSize(
-            width:  src.tileRect.width  * Double(factor),
-            height: src.tileRect.height * Double(factor)
-        )
+    func addParameters() throws {
+        let api = apiManager.api(for: FxParameterCreationAPI_v5.self) as! FxParameterCreationAPI_v5
+        api.addPopupMenu(withName: "Scale Factor",
+                         parameterID: ParamID.scaleFactor.rawValue,
+                         defaultValue: 0,
+                         menuEntries: ["2×", "4×"],
+                         parameterFlags: FxParameterFlags(kFxParameterFlag_DEFAULT))
+        api.addPopupMenu(withName: "Quality Mode",
+                         parameterID: ParamID.qualityMode.rawValue,
+                         defaultValue: 0,
+                         menuEntries: ["Fast (MPS)", "Best (Core ML)"],
+                         parameterFlags: FxParameterFlags(kFxParameterFlag_DEFAULT))
+    }
+
+    func properties(_ properties: AutoreleasingUnsafeMutablePointer<NSDictionary>?) throws {
+        properties?.pointee = [
+            kFxPropertyKey_NeedsFullBuffer:          NSNumber(booleanLiteral: true),
+            kFxPropertyKey_MayRemapTime:             NSNumber(booleanLiteral: false),
+            kFxPropertyKey_ChangesOutputSize:        NSNumber(booleanLiteral: true),
+            kFxPropertyKey_VariesWhenParamsAreStatic: NSNumber(booleanLiteral: false),
+        ] as NSDictionary
+    }
+
+    // MARK: - FxTileableEffect — parameter gathering (called before render)
+
+    func pluginState(_ pluginState: AutoreleasingUnsafeMutablePointer<NSData>?,
+                     at renderTime: CMTime,
+                     quality _: UInt) throws {
+        let api = apiManager.api(for: FxParameterRetrievalAPI_v6.self) as! FxParameterRetrievalAPI_v6
+        var scaleIdx: Int32 = 0
+        var qualityIdx: Int32 = 0
+        api.getIntValue(&scaleIdx,   fromParameter: ParamID.scaleFactor.rawValue, at: renderTime)
+        api.getIntValue(&qualityIdx, fromParameter: ParamID.qualityMode.rawValue, at: renderTime)
+        var state = StateData(scaleFactor: scaleIdx, qualityMode: qualityIdx)
+        pluginState?.pointee = NSData(bytes: &state, length: MemoryLayout.size(ofValue: state))
+    }
+
+    // MARK: - FxTileableEffect — geometry
+
+    func destinationImageRect(_ destinationImageRect: UnsafeMutablePointer<FxRect>,
+                               sourceImages: [FxImageTile],
+                               destinationImage _: FxImageTile,
+                               pluginState: Data?,
+                               at _: CMTime) throws {
+        let src = sourceImages[0].imagePixelBounds
+        let scale = Double(decodeState(pluginState)?.scaleFactor == 0 ? 2 : 4)
+        destinationImageRect.pointee = FxRect(left:   src.left   * scale,
+                                              bottom: src.bottom * scale,
+                                              right:  src.right  * scale,
+                                              top:    src.top    * scale)
+    }
+
+    func sourceTileRect(_ sourceTileRect: UnsafeMutablePointer<FxRect>,
+                        sourceImageIndex: UInt,
+                        sourceImages: [FxImageTile],
+                        destinationTileRect _: FxRect,
+                        destinationImage _: FxImageTile,
+                        pluginState _: Data?,
+                        at _: CMTime) throws {
+        // Request full source image (NeedsFullBuffer=true means FCP always provides it)
+        sourceTileRect.pointee = sourceImages[Int(sourceImageIndex)].imagePixelBounds
     }
 
     // MARK: - FxTileableEffect — render
 
-    func renderDestination(
-        _ destination: FxDestination,
-        sourceImages: [FxImageTile],
-        destinationImage: FxImageTile,
-        pluginState: Data?,
-        atTime time: CMTime,
-        error: AutoreleasingUnsafeMutablePointer<NSError?>?
-    ) -> Bool {
-        do {
-            guard let sourceTexture = sourceImages.first?.texture,
-                  let commandBuffer = destination.commandBuffer()
-            else { return false }
+    func renderDestinationImage(_ destinationImage: FxImageTile,
+                                 sourceImages: [FxImageTile],
+                                 pluginState: Data?,
+                                 at _: CMTime) throws {
+        guard let state = decodeState(pluginState),
+              let sourceImage = sourceImages.first else { return }
 
-            let scale   = scaleFactorValue(atTime: time)
-            let quality = qualityModeValue(atTime: time)
+        let scaleFactor: ScaleFactor = state.scaleFactor == 0 ? .x2 : .x4
+        let deviceCache = MetalDeviceCache.shared
 
-            let engine = try resolvedEngine(scale: scale, quality: quality, commandBuffer: commandBuffer)
+        guard let device = deviceCache.device(forRegistryID: sourceImage.deviceRegistryID),
+              let commandQueue = deviceCache.commandQueue(forRegistryID: sourceImage.deviceRegistryID)
+        else { throw UpscalerError.metalDeviceUnavailable }
+        defer { deviceCache.returnCommandQueue(commandQueue, forRegistryID: sourceImage.deviceRegistryID) }
 
-            guard let device = commandBuffer.device else {
-                throw UpscalerError.metalDeviceUnavailable
-            }
+        guard let sourceTexture = sourceImage.metalTexture(for: device),
+              let destTexture   = destinationImage.metalTexture(for: device)
+        else { throw UpscalerError.metalDeviceUnavailable }
 
-            let processor = TileProcessor(device: device)
-            let result = try processor.process(
-                input: sourceTexture,
-                scaleFactor: scale,
-                engine: engine,
-                commandBuffer: commandBuffer
-            )
+        let engine = try resolvedEngine(scale: scaleFactor, quality: state.qualityMode, device: device)
+        let processor = TileProcessor(device: device)
 
-            guard let destTexture = destinationImage.texture else { return false }
-
-            let blit = commandBuffer.makeBlitCommandEncoder()!
-            blit.copy(from: result, to: destTexture)
-            blit.endEncoding()
-
-            return true
-        } catch let renderError {
-            error?.pointee = renderError as NSError
-            return false
-        }
-    }
-
-    // MARK: - Private helpers
-
-    private func scaleFactorValue(atTime time: CMTime) -> ScaleFactor {
-        guard let api = plugInAPI?.parameterRetrievalAPI?() else { return .x2 }
-        var index: Int = 0
-        try? api.getIntValue(&index, fromParm: ParamID.scaleFactor.rawValue, at: time)
-        return index == 0 ? .x2 : .x4
-    }
-
-    private func qualityModeValue(atTime time: CMTime) -> Int {
-        guard let api = plugInAPI?.parameterRetrievalAPI?() else { return 0 }
-        var index: Int = 0
-        try? api.getIntValue(&index, fromParm: ParamID.qualityMode.rawValue, at: time)
-        return index
-    }
-
-    private func resolvedEngine(
-        scale: ScaleFactor,
-        quality: Int,
-        commandBuffer: MTLCommandBuffer
-    ) throws -> any UpscalerEngine {
-        let key = "\(quality)-\(scale.rawValue)"
-        if let cached = engines[key] { return cached }
-
-        guard let device = commandBuffer.device else {
+        guard let commandBuffer = commandQueue.makeCommandBuffer() else {
             throw UpscalerError.metalDeviceUnavailable
         }
 
+        let result = try processor.process(input: sourceTexture, scaleFactor: scaleFactor,
+                                           engine: engine, commandBuffer: commandBuffer)
+
+        let blit = commandBuffer.makeBlitCommandEncoder()!
+        blit.copy(from: result, to: destTexture)
+        blit.endEncoding()
+
+        commandBuffer.commit()
+        commandBuffer.waitUntilCompleted()
+    }
+
+    // MARK: - Private
+
+    private func decodeState(_ data: Data?) -> StateData? {
+        guard let data, data.count >= MemoryLayout<StateData>.size else { return nil }
+        return data.withUnsafeBytes { $0.bindMemory(to: StateData.self).baseAddress?.pointee }
+    }
+
+    private func resolvedEngine(scale: ScaleFactor, quality: Int32, device: MTLDevice) throws -> any UpscalerEngine {
+        let key = "\(quality)-\(scale.rawValue)"
+        if let cached = engines[key] { return cached }
         let engine: any UpscalerEngine
         if quality == 0 {
             engine = MPSUpscaler(scaleFactor: scale, device: device)
@@ -1152,7 +1238,7 @@ final class UpscalerEffect: NSObject, FxTileableEffect {
 }
 ```
 
-- [ ] **Step 2: Verify project builds**
+- [ ] **Step 3: Verify project builds**
 
 ```bash
 xcodebuild -scheme AIUpscaler -configuration Debug build
@@ -1160,11 +1246,12 @@ xcodebuild -scheme AIUpscaler -configuration Debug build
 
 Expected: `BUILD SUCCEEDED`
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add AIUpscaler/AIUpscaler/Plugin/UpscalerEffect.swift
-git commit -m "feat: add UpscalerEffect FxTileableEffect implementation"
+git add AIUpscaler/AIUpscaler/Plugin/MetalDeviceCache.swift \
+        AIUpscaler/AIUpscaler/Plugin/UpscalerEffect.swift
+git commit -m "feat: add MetalDeviceCache and UpscalerEffect FxTileableEffect implementation"
 ```
 
 ---
