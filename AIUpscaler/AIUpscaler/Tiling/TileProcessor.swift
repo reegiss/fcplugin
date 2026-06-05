@@ -62,4 +62,80 @@ final class TileProcessor {
         }
         return regions
     }
+
+    // MARK: - Metal execution
+
+    func process(
+        input: MTLTexture,
+        scaleFactor: ScaleFactor,
+        engine: any UpscalerEngine,
+        commandBuffer: MTLCommandBuffer
+    ) throws -> MTLTexture {
+        let scale = scaleFactor.rawValue
+        let outDesc = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: input.pixelFormat,
+            width:  input.width  * scale,
+            height: input.height * scale,
+            mipmapped: false
+        )
+        outDesc.usage = [.shaderRead, .shaderWrite]
+        guard let output = device.makeTexture(descriptor: outDesc) else {
+            throw UpscalerError.metalDeviceUnavailable
+        }
+
+        let tiles = TileProcessor.calculateTiles(
+            inputWidth:  input.width,
+            inputHeight: input.height,
+            scaleFactor: scale
+        )
+
+        for region in tiles {
+            let tileDesc = MTLTextureDescriptor.texture2DDescriptor(
+                pixelFormat: input.pixelFormat,
+                width:  Int(region.inputRect.width),
+                height: Int(region.inputRect.height),
+                mipmapped: false
+            )
+            tileDesc.usage = [.shaderRead, .shaderWrite]
+            guard let tileTexture = device.makeTexture(descriptor: tileDesc) else {
+                throw UpscalerError.metalDeviceUnavailable
+            }
+
+            // 1. Blit input region → tile texture
+            let blit1 = commandBuffer.makeBlitCommandEncoder()!
+            blit1.copy(
+                from: input,
+                sourceSlice: 0, sourceLevel: 0,
+                sourceOrigin: MTLOrigin(x: Int(region.inputRect.origin.x),
+                                        y: Int(region.inputRect.origin.y), z: 0),
+                sourceSize:   MTLSize(width:  Int(region.inputRect.width),
+                                      height: Int(region.inputRect.height), depth: 1),
+                to: tileTexture,
+                destinationSlice: 0, destinationLevel: 0,
+                destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0)
+            )
+            blit1.endEncoding()
+
+            // 2. Upscale tile via engine
+            let upscaled = try engine.upscale(input: tileTexture, commandBuffer: commandBuffer)
+
+            // 3. Blit inner (non-overlap) region of upscaled tile → output
+            let blit2 = commandBuffer.makeBlitCommandEncoder()!
+            blit2.copy(
+                from: upscaled,
+                sourceSlice: 0, sourceLevel: 0,
+                sourceOrigin: MTLOrigin(x: Int(region.upscaledInnerOrigin.x),
+                                        y: Int(region.upscaledInnerOrigin.y), z: 0),
+                sourceSize:   MTLSize(width:  Int(region.upscaledInnerSize.width),
+                                      height: Int(region.upscaledInnerSize.height), depth: 1),
+                to: output,
+                destinationSlice: 0, destinationLevel: 0,
+                destinationOrigin: MTLOrigin(x: Int(region.outputOrigin.x),
+                                             y: Int(region.outputOrigin.y), z: 0)
+            )
+            blit2.endEncoding()
+        }
+
+        return output
+    }
 }
