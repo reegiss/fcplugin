@@ -48,7 +48,7 @@
 	<array>
 		<dict>
 			<key>groupName</key>
-			<string>AIUpscaler Group</string>
+			<string>AI Upscaler</string>
 			<key>uuid</key>
 			<string>057F4228-BAFB-4A6B-B5A8-AC4F827009B7</string>
 		</dict>
@@ -59,14 +59,14 @@
 			<key>className</key>
 			<string>AIUpscalerPlugIn</string>
 			<key>displayName</key>
-			<string>AIUpscaler::FxPlug Name</string>
+			<string>AI Upscaler</string>
 			<key>group</key>
 			<string>057F4228-BAFB-4A6B-B5A8-AC4F827009B7</string>
 			<key>infoString</key>
-			<string>AIUpscaler::FxPlug Description</string>
+			<string>On-device AI video upscaling (2× and 4×)</string>
 			<key>protocolNames</key>
 			<array>
-				<string>FxFilter</string>
+				<string>FxTileableEffect</string>
 			</array>
 			<key>uuid</key>
 			<string>5D54BF3F-E7AA-47DD-92A4-106ECFA34F8B</string>
