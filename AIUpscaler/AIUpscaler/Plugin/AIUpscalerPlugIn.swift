@@ -50,7 +50,6 @@ final class UpscalerEffect: NSObject, FxTileableEffect {
 
     func properties(_ properties: AutoreleasingUnsafeMutablePointer<NSDictionary>?) throws {
         properties?.pointee = [
-            kFxPropertyKey_NeedsFullBuffer:           NSNumber(booleanLiteral: true),
             kFxPropertyKey_MayRemapTime:              NSNumber(booleanLiteral: false),
             kFxPropertyKey_ChangesOutputSize:         NSNumber(booleanLiteral: true),
             kFxPropertyKey_VariesWhenParamsAreStatic: NSNumber(booleanLiteral: false),
