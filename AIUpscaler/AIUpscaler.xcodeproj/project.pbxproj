@@ -8,12 +8,18 @@
 
 /* Begin PBXBuildFile section */
 		ACC77A682FD37A3C00993982 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = ACC77A672FD37A3C00993982 /* Cocoa.framework */; };
-		ACC77A702FD37A3C00993982 /* AIUpscaler XPC Service.pluginkit in Embed PlugIns */ = {isa = PBXBuildFile; fileRef = ACC77A6F2FD37A3C00993982 /* AIUpscaler XPC Service.pluginkit */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		ACC77A702FD37A3C00993982 /* AIUpscaler XPC Service.pluginkit in Embed PlugIns */ = {isa = PBXBuildFile; fileRef = ACC77A6F2FD37A3C00993982 /* AIUpscaler XPC Service.pluginkit */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		ACC77A742FD37A3C00993982 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = ACC77A732FD37A3C00993982 /* Foundation.framework */; };
 		ACC77A762FD37A3C00993982 /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = ACC77A752FD37A3C00993982 /* AppKit.framework */; };
 		ACC77A782FD37A3C00993982 /* Accelerate.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = ACC77A772FD37A3C00993982 /* Accelerate.framework */; };
 		ACC77A7A2FD37A3C00993982 /* PluginManager.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = ACC77A792FD37A3C00993982 /* PluginManager.framework */; };
 		ACC77A7C2FD37A3C00993982 /* FxPlug.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = ACC77A7B2FD37A3C00993982 /* FxPlug.framework */; };
+		BABE00032FD37A3C00993982 /* realesrgan_2x.mlmodelc in Resources */ = {isa = PBXBuildFile; fileRef = BABE00012FD37A3C00993982 /* realesrgan_2x.mlmodelc */; };
+		BABE00042FD37A3C00993982 /* realesrgan_4x.mlmodelc in Resources */ = {isa = PBXBuildFile; fileRef = BABE00022FD37A3C00993982 /* realesrgan_4x.mlmodelc */; };
+		BABE00052FD37A3C00993982 /* realesrgan_2x.mlmodelc in Resources */ = {isa = PBXBuildFile; fileRef = BABE00012FD37A3C00993982 /* realesrgan_2x.mlmodelc */; };
+		BABE00062FD37A3C00993982 /* realesrgan_4x.mlmodelc in Resources */ = {isa = PBXBuildFile; fileRef = BABE00022FD37A3C00993982 /* realesrgan_4x.mlmodelc */; };
+		BABE00072FD37A3C00993982 /* realesrgan_2x.mlmodelc in Resources */ = {isa = PBXBuildFile; fileRef = BABE00012FD37A3C00993982 /* realesrgan_2x.mlmodelc */; };
+		BABE00082FD37A3C00993982 /* realesrgan_4x.mlmodelc in Resources */ = {isa = PBXBuildFile; fileRef = BABE00022FD37A3C00993982 /* realesrgan_4x.mlmodelc */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -64,6 +70,8 @@
 		ACC77A792FD37A3C00993982 /* PluginManager.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = PluginManager.framework; path = Library/Frameworks/../../../../../../Library/Developer/Frameworks/PluginManager.framework; sourceTree = DEVELOPER_DIR; };
 		ACC77A7B2FD37A3C00993982 /* FxPlug.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = FxPlug.framework; path = Library/Frameworks/../../../../../../Library/Developer/Frameworks/FxPlug.framework; sourceTree = DEVELOPER_DIR; };
 		ACC77ADF2FD37B7800993982 /* AIUpscalerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AIUpscalerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		BABE00012FD37A3C00993982 /* realesrgan_2x.mlmodelc */ = {isa = PBXFileReference; lastKnownFileType = folder; name = realesrgan_2x.mlmodelc; path = AIUpscaler/Resources/realesrgan_2x.mlmodelc; sourceTree = SOURCE_ROOT; };
+		BABE00022FD37A3C00993982 /* realesrgan_4x.mlmodelc */ = {isa = PBXFileReference; lastKnownFileType = folder; name = realesrgan_4x.mlmodelc; path = AIUpscaler/Resources/realesrgan_4x.mlmodelc; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -148,6 +156,8 @@
 			children = (
 				ACC77A7F2FD37A3C00993982 /* AIUpscaler */,
 				ACC77AE02FD37B7800993982 /* AIUpscalerTests */,
+				BABE00012FD37A3C00993982 /* realesrgan_2x.mlmodelc */,
+				BABE00022FD37A3C00993982 /* realesrgan_4x.mlmodelc */,
 				ACC77A662FD37A3C00993982 /* Frameworks */,
 				ACC77A652FD37A3C00993982 /* Products */,
 			);
@@ -299,6 +309,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BABE00072FD37A3C00993982 /* realesrgan_2x.mlmodelc in Resources */,
+				BABE00082FD37A3C00993982 /* realesrgan_4x.mlmodelc in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -306,6 +318,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BABE00032FD37A3C00993982 /* realesrgan_2x.mlmodelc in Resources */,
+				BABE00042FD37A3C00993982 /* realesrgan_4x.mlmodelc in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -313,6 +327,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BABE00052FD37A3C00993982 /* realesrgan_2x.mlmodelc in Resources */,
+				BABE00062FD37A3C00993982 /* realesrgan_4x.mlmodelc in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -335,7 +351,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "mkdir -p \"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}\"\nrsync --archive --links --whole-file --no-owner --no-group --checksum --exclude='Headers' \"/Library/Developer/Frameworks/FxPlug.framework/\" \"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/FxPlug.framework/\"\nif [ \"$?\" -ne 0 ]; then echo \"error: rsync failed; couldn't embed FxPlug.framework\"; exit 1; fi\ncodesign --force --timestamp --options runtime --sign \"${CODE_SIGN_IDENTITY}\" \"${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}/FxPlug.framework\"";
+			shellScript = "mkdir -p \"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}\"\nrsync --archive --links --whole-file --no-owner --no-group --checksum --exclude='Headers' \"/Library/Developer/Frameworks/FxPlug.framework/\" \"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/FxPlug.framework/\"\nif [ \"$?\" -ne 0 ]; then echo \"error: rsync failed; couldn't embed FxPlug.framework\"; exit 1; fi\ncodesign --force --timestamp=none --options runtime --sign \"${EXPANDED_CODE_SIGN_IDENTITY}\" \"${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}/FxPlug.framework\"";
 			showEnvVarsInLog = 0;
 		};
 		ACC77A6D2FD37A3C00993982 /* Copy and Code Sign PluginManager.framework */ = {
@@ -354,7 +370,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "mkdir -p \"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}\"\nrsync --archive --links --whole-file --no-owner --no-group --checksum --exclude='Headers' \"/Library/Developer/Frameworks/PluginManager.framework/\" \"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/PluginManager.framework/\"\nif [ \"$?\" -ne 0 ]; then echo \"error: rsync failed; couldn't embed PluginManager.framework\"; exit 1; fi\ncodesign --force --timestamp --options runtime --sign \"${CODE_SIGN_IDENTITY}\" \"${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}/PluginManager.framework\"\n";
+			shellScript = "mkdir -p \"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}\"\nrsync --archive --links --whole-file --no-owner --no-group --checksum --exclude='Headers' \"/Library/Developer/Frameworks/PluginManager.framework/\" \"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/PluginManager.framework/\"\nif [ \"$?\" -ne 0 ]; then echo \"error: rsync failed; couldn't embed PluginManager.framework\"; exit 1; fi\ncodesign --force --timestamp=none --options runtime --sign \"${EXPANDED_CODE_SIGN_IDENTITY}\" \"${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}/PluginManager.framework\"\n";
 			showEnvVarsInLog = 0;
 		};
 /* End PBXShellScriptBuildPhase section */
@@ -405,8 +421,10 @@
 		ACC77AA32FD37A3C00993982 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = AIUpscaler/Plugin/XPCService.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = XHLUB827PS;
+				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
 				INFOPLIST_FILE = AIUpscaler/Plugin/Info.plist;
@@ -416,8 +434,8 @@
 				);
 				MACH_O_TYPE = mh_execute;
 				MACOSX_DEPLOYMENT_TARGET = 13.5;
-				PRODUCT_BUNDLE_IDENTIFIER = "$(PRODUCT_NAME:rfc1034identifier)";
-				PRODUCT_NAME = "AIUpscaler $(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = info.regismelo.AIUpscalerV2.XPCService;
+				PRODUCT_NAME = AIUpscalerXPCV2;
 				SWIFT_OBJC_BRIDGING_HEADER = "AIUpscaler/Plugin/XPC Service-Bridging-Header.h";
 				WRAPPER_EXTENSION = pluginkit;
 			};
@@ -426,8 +444,10 @@
 		ACC77AA42FD37A3C00993982 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = AIUpscaler/Plugin/XPCService.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = XHLUB827PS;
+				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
 				INFOPLIST_FILE = AIUpscaler/Plugin/Info.plist;
@@ -437,8 +457,8 @@
 				);
 				MACH_O_TYPE = mh_execute;
 				MACOSX_DEPLOYMENT_TARGET = 13.5;
-				PRODUCT_BUNDLE_IDENTIFIER = "$(PRODUCT_NAME:rfc1034identifier)";
-				PRODUCT_NAME = "AIUpscaler $(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = info.regismelo.AIUpscalerV2.XPCService;
+				PRODUCT_NAME = AIUpscalerXPCV2;
 				SWIFT_OBJC_BRIDGING_HEADER = "AIUpscaler/Plugin/XPC Service-Bridging-Header.h";
 				WRAPPER_EXTENSION = pluginkit;
 			};
@@ -453,8 +473,8 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
 				INFOPLIST_FILE = "AIUpscaler/Wrapper Application/Info.plist";
-				PRODUCT_BUNDLE_IDENTIFIER = "$(PRODUCT_NAME:rfc1034identifier)";
-				PRODUCT_NAME = AIUpscaler;
+				PRODUCT_BUNDLE_IDENTIFIER = info.regismelo.AIUpscalerV2;
+				PRODUCT_NAME = AIUpscalerV2;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_OBJC_BRIDGING_HEADER = "AIUpscaler/Wrapper Application/Wrapper Application-Bridging-Header.h";
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
@@ -471,8 +491,8 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
 				INFOPLIST_FILE = "AIUpscaler/Wrapper Application/Info.plist";
-				PRODUCT_BUNDLE_IDENTIFIER = "$(PRODUCT_NAME:rfc1034identifier)";
-				PRODUCT_NAME = AIUpscaler;
+				PRODUCT_BUNDLE_IDENTIFIER = info.regismelo.AIUpscalerV2;
+				PRODUCT_NAME = AIUpscalerV2;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_OBJC_BRIDGING_HEADER = "AIUpscaler/Wrapper Application/Wrapper Application-Bridging-Header.h";
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
@@ -540,7 +560,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 26.5;
+				MACOSX_DEPLOYMENT_TARGET = 13.5;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -605,7 +625,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 26.5;
+				MACOSX_DEPLOYMENT_TARGET = 13.5;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
@@ -623,7 +643,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = XHLUB827PS;
 				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 26.5;
+				MACOSX_DEPLOYMENT_TARGET = 13.5;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = info.regismelo.AIUpscalerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -645,7 +665,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = XHLUB827PS;
 				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 26.5;
+				MACOSX_DEPLOYMENT_TARGET = 13.5;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = info.regismelo.AIUpscalerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";

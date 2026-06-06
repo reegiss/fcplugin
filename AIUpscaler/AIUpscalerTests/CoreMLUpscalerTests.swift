@@ -7,22 +7,20 @@ import CoreML
 
     var device: MTLDevice { MTLCreateSystemDefaultDevice()! }
 
-    @Test(.disabled("realesrgan_2x.mlpackage not yet in bundle — run scripts/convert_realesrgan.py"))
-    func warmupLoads2xModelWithoutThrowing() async throws {
-        let engine = CoreMLUpscaler(scaleFactor: .x2, device: device)
+    @Test func warmupLoads2xModelWithoutThrowing() async throws {
+        let engine = CoreMLUpscaler(scaleFactor: .x2, device: device, computeUnits: .cpuAndGPU)
         try await engine.warmup()
     }
 
-    @Test(.disabled("realesrgan_4x.mlpackage not yet in bundle — run scripts/convert_realesrgan.py"))
-    func warmupLoads4xModelWithoutThrowing() async throws {
-        let engine = CoreMLUpscaler(scaleFactor: .x4, device: device)
+    @Test func warmupLoads4xModelWithoutThrowing() async throws {
+        let engine = CoreMLUpscaler(scaleFactor: .x4, device: device, computeUnits: .cpuAndGPU)
         try await engine.warmup()
     }
 
-    @Test(.disabled("realesrgan_2x.mlpackage not yet in bundle — run scripts/convert_realesrgan.py"))
-    func outputDimensionsAre2xInput() async throws {
+    @Test func outputDimensionsAre2xInput() async throws {
         let device = device
-        let engine = CoreMLUpscaler(scaleFactor: .x2, device: device)
+        // Use .cpuAndGPU to avoid ANE initialization issues in the test process sandbox
+        let engine = CoreMLUpscaler(scaleFactor: .x2, device: device, computeUnits: .cpuAndGPU)
         try await engine.warmup()
 
         let inputDesc = MTLTextureDescriptor.texture2DDescriptor(

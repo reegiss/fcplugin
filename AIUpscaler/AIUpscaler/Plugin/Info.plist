@@ -3,31 +3,29 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
-	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>AIUpscalerXPCService</string>
+	<string>AIUpscalerXPCV2</string>
 	<key>CFBundleExecutable</key>
-	<string>$(EXECUTABLE_NAME)</string>
+	<string>AIUpscalerXPCV2</string>
 	<key>CFBundleIdentifier</key>
-	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<string>info.regismelo.AIUpscalerV2.XPCService</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>$(PRODUCT_NAME)</string>
+	<string>AIUpscalerXPCV2</string>
 	<key>CFBundlePackageType</key>
 	<string>XPC!</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
+	<string>1.2</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
-	<key>NSHumanReadableCopyright</key>
-	<string></string>
 	<key>PlugInKit</key>
 	<dict>
 		<key>Attributes</key>
 		<dict>
 			<key>com.apple.protocol</key>
-			<string>com.apple.fxplug</string>
+			<string>FxPlug</string>
 			<key>com.apple.version</key>
 			<string>1.1</string>
 		</dict>
@@ -50,7 +48,7 @@
 			<key>groupName</key>
 			<string>AI Upscaler</string>
 			<key>uuid</key>
-			<string>057F4228-BAFB-4A6B-B5A8-AC4F827009B7</string>
+			<string>5B8B649F-678F-48ED-A762-ACC00BAE04C7</string>
 		</dict>
 	</array>
 	<key>ProPlugPlugInList</key>
@@ -61,27 +59,27 @@
 			<key>displayName</key>
 			<string>AI Upscaler</string>
 			<key>group</key>
-			<string>057F4228-BAFB-4A6B-B5A8-AC4F827009B7</string>
+			<string>5B8B649F-678F-48ED-A762-ACC00BAE04C7</string>
 			<key>infoString</key>
-			<string>On-device AI video upscaling (2× and 4×)</string>
+			<string>On-device AI video upscaling</string>
 			<key>protocolNames</key>
 			<array>
-				<string>FxTileableEffect</string>
+				<string>FxFilter</string>
 			</array>
 			<key>uuid</key>
-			<string>5D54BF3F-E7AA-47DD-92A4-106ECFA34F8B</string>
+			<string>C1D48F7E-1867-42C3-9C89-9329EA2E1E9D</string>
 			<key>version</key>
 			<string>1.0</string>
 		</dict>
 	</array>
 	<key>XPCService</key>
 	<dict>
-		<key>ServiceType</key>
-		<string>Application</string>
 		<key>JoinExistingSession</key>
 		<true/>
 		<key>RunLoopType</key>
 		<string>_NSApplicationMain</string>
+		<key>ServiceType</key>
+		<string>Application</string>
 		<key>_AdditionalSubServices</key>
 		<dict>
 			<key>viewbridge</key>

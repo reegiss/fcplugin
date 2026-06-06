@@ -1,48 +1,60 @@
 #!/bin/bash
+set -e
 
-# Configuration
-PLUGIN_NAME="AIUpscaler"
-SANDBOX_DIR="$HOME/Library/Containers/com.apple.FinalCutApp/Data/Library/Application Support/Plug-ins/ProPlug"
-PROJECT_DIR="AIUpscaler"
-BUILD_DIR="$PROJECT_DIR/build/Release"
-APP_NAME="AIUpscaler.app"
-PLUGIN_KIT="AIUpscaler XPC Service.pluginkit"
+APP_NAME="AIUpscalerV2"
+XPC_NAME="AIUpscalerXPCV2"
+BUNDLE_ID="info.regismelo.AIUpscalerV2"
+XPC_ID="info.regismelo.AIUpscalerV2.XPCService"
+DEST_DIR="/Applications"
 
 echo "--- Starting Plugin Registration ---"
 
-# Ensure build exists
-if [ ! -d "$BUILD_DIR" ]; then
-    echo "Error: Build directory $BUILD_DIR not found. Please build the project first."
+# Cleanup
+echo "Cleaning up existing registration..."
+pluginkit -r "$XPC_ID" || true
+
+# Copy
+echo "Deploying to $DEST_DIR..."
+if [ -d "AIUpscaler/build/Release/$APP_NAME.app" ]; then
+    rm -rf "$DEST_DIR/$APP_NAME.app" || echo "Note: Could not delete existing app."
+    cp -R "AIUpscaler/build/Release/$APP_NAME.app" "$DEST_DIR/"
+else
+    echo "Error: $APP_NAME.app not found. Build first."
     exit 1
 fi
 
-# 1. Cleanup
-echo "Cleaning up existing registration..."
-# Try to unregister by path if it exists
-if [ -d "$SANDBOX_DIR/$PLUGIN_KIT" ]; then
-    pluginkit -r "$SANDBOX_DIR/$PLUGIN_KIT" 2>/dev/null
-fi
-rm -rf "$SANDBOX_DIR/$PLUGIN_KIT"
-rm -rf "$SANDBOX_DIR/$APP_NAME"
+APP_PATH="$DEST_DIR/$APP_NAME.app"
+XPC_PATH="$APP_PATH/Contents/PlugIns/$XPC_NAME.pluginkit"
 
-# 2. Deploy
-echo "Deploying to sandbox..."
-mkdir -p "$SANDBOX_DIR"
-ditto "$BUILD_DIR/$PLUGIN_KIT" "$SANDBOX_DIR/$PLUGIN_KIT"
-ditto "$BUILD_DIR/$APP_NAME" "$SANDBOX_DIR/$APP_NAME"
+# Entitlements paths
+XPC_ENT="AIUpscaler/AIUpscaler/Plugin/XPCService.entitlements"
+APP_ENT="AIUpscaler/AIUpscaler/Wrapper Application/SandboxEntitlements.entitlements"
 
-# 3. Codesign
-echo "Codesigning (ad-hoc)..."
-# Ad-hoc sign (-s -) the inner pluginkit bundle and then the wrapper .app
-codesign -s - --force --deep "$SANDBOX_DIR/$PLUGIN_KIT"
-codesign -s - --force --deep "$SANDBOX_DIR/$APP_NAME"
+echo "Codesigning (ad-hoc) with entitlements..."
 
-# 4. Register
+# 1. Sign Frameworks
+find "$XPC_PATH" -name "*.framework" -type d | while read fw; do
+    codesign --force --sign - --timestamp=none "$fw"
+done
+
+# 2. Sign XPC Binary
+codesign --force --sign - --entitlements "$XPC_ENT" --timestamp=none "$XPC_PATH/Contents/MacOS/$XPC_NAME"
+
+# 3. Sign XPC Bundle (the pluginkit)
+codesign --force --sign - --entitlements "$XPC_ENT" --timestamp=none "$XPC_PATH"
+
+# 4. Sign Wrapper App Binary
+codesign --force --sign - --entitlements "$APP_ENT" --timestamp=none "$APP_PATH/Contents/MacOS/$APP_NAME"
+
+# 5. Sign Wrapper App Bundle
+codesign --force --sign - --entitlements "$APP_ENT" --timestamp=none "$APP_PATH"
+
 echo "Registering plugin..."
-pluginkit -a "$SANDBOX_DIR/$PLUGIN_KIT"
+/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister -f "$APP_PATH"
+pluginkit -a "$XPC_PATH"
+pluginkit -e use -i "$XPC_ID"
 
-# 5. Verify
 echo "Verifying registration..."
-pluginkit -mAv | grep -i "$PLUGIN_NAME"
+pluginkit -mAv | grep "$XPC_ID"
 
 echo "--- Done ---"
