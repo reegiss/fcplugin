@@ -27,7 +27,7 @@
 		<key>Attributes</key>
 		<dict>
 			<key>com.apple.protocol</key>
-			<string>FxPlug</string>
+			<string>com.apple.fxplug</string>
 			<key>com.apple.version</key>
 			<string>1.1</string>
 		</dict>
