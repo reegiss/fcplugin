@@ -1,5 +1,6 @@
 import Foundation
 import Metal
+import MetalPerformanceShaders
 import os.log
 
 private let logger = Logger(subsystem: "com.aiupscaler", category: "plugin")
@@ -51,7 +52,6 @@ final class UpscalerEffect: NSObject, FxTileableEffect {
     func properties(_ properties: AutoreleasingUnsafeMutablePointer<NSDictionary>?) throws {
         properties?.pointee = [
             kFxPropertyKey_MayRemapTime:              NSNumber(booleanLiteral: false),
-            kFxPropertyKey_ChangesOutputSize:         NSNumber(booleanLiteral: true),
             kFxPropertyKey_VariesWhenParamsAreStatic: NSNumber(booleanLiteral: false),
         ] as NSDictionary
     }
@@ -75,14 +75,9 @@ final class UpscalerEffect: NSObject, FxTileableEffect {
     func destinationImageRect(_ destinationImageRect: UnsafeMutablePointer<FxRect>,
                                sourceImages: [FxImageTile],
                                destinationImage _: FxImageTile,
-                               pluginState: Data?,
+                               pluginState _: Data?,
                                at _: CMTime) throws {
-        let src = sourceImages[0].imagePixelBounds
-        let scale = Int32(decodeState(pluginState)?.scaleFactor == 0 ? 2 : 4)
-        destinationImageRect.pointee = FxRect(left:   src.left   * scale,
-                                              bottom: src.bottom * scale,
-                                              right:  src.right  * scale,
-                                              top:    src.top    * scale)
+        destinationImageRect.pointee = sourceImages[0].imagePixelBounds
     }
 
     func sourceTileRect(_ sourceTileRect: UnsafeMutablePointer<FxRect>,
@@ -101,8 +96,9 @@ final class UpscalerEffect: NSObject, FxTileableEffect {
                                  sourceImages: [FxImageTile],
                                  pluginState: Data?,
                                  at _: CMTime) throws {
-        guard let state = decodeState(pluginState),
-              let sourceImage = sourceImages.first else { return }
+        let state = decodeState(pluginState) ?? StateData(scaleFactor: 0, engineMode: 1)
+
+        guard let sourceImage = sourceImages.first else { return }
 
         let scaleFactor: ScaleFactor = state.scaleFactor == 0 ? .x2 : .x4
         let deviceCache = MetalDeviceCache.shared
@@ -121,6 +117,7 @@ final class UpscalerEffect: NSObject, FxTileableEffect {
         }
 
         var usedFallback = false
+        var fallbackError: String?
         let activeEngine: any UpscalerEngine
 
         if state.engineMode == 0 {
@@ -130,6 +127,7 @@ final class UpscalerEffect: NSObject, FxTileableEffect {
                 logger.error("CoreML warmup failed: \(error.localizedDescription, privacy: .public)")
                 activeEngine = try resolvedEngine(scale: scaleFactor, engineMode: 1, device: device)
                 usedFallback = true
+                fallbackError = error.localizedDescription
             }
         } else {
             activeEngine = try resolvedEngine(scale: scaleFactor, engineMode: 1, device: device)
@@ -137,6 +135,7 @@ final class UpscalerEffect: NSObject, FxTileableEffect {
 
         let processor = TileProcessor(device: device)
         let result: MTLTexture
+        let inferenceStart = Date()
 
         if state.engineMode == 0 && !usedFallback {
             do {
@@ -148,17 +147,38 @@ final class UpscalerEffect: NSObject, FxTileableEffect {
                 result = try processor.process(input: sourceTexture, scaleFactor: scaleFactor,
                                                engine: mpsEngine, commandBuffer: commandBuffer)
                 usedFallback = true
+                fallbackError = error.localizedDescription
             }
         } else {
             result = try processor.process(input: sourceTexture, scaleFactor: scaleFactor,
                                            engine: activeEngine, commandBuffer: commandBuffer)
         }
 
-        guard let blit = commandBuffer.makeBlitCommandEncoder() else {
-            throw UpscalerError.metalDeviceUnavailable
+        let processingMs = Int(Date().timeIntervalSince(inferenceStart) * 1000)
+
+        let engineLabel = usedFallback ? "MPS_fallback" : (state.engineMode == 0 ? "CoreML" : "MPS")
+
+        appendLogEntry(engine: engineLabel, scale: scaleFactor.rawValue,
+                       inputW: sourceTexture.width, inputH: sourceTexture.height,
+                       processingMs: processingMs, ok: !usedFallback, error: fallbackError,
+                       start: inferenceStart)
+
+        // result is source×scaleFactor; destTexture may differ — scale to fit.
+        if result.width == destTexture.width && result.height == destTexture.height {
+            guard let blit = commandBuffer.makeBlitCommandEncoder() else {
+                throw UpscalerError.metalDeviceUnavailable
+            }
+            blit.copy(from: result, to: destTexture)
+            blit.endEncoding()
+        } else {
+            // AI upscaled intermediate → Lanczos downsample to destination size.
+            // Net effect: AI-enhanced quality at the same output dimensions.
+            MPSImageLanczosScale(device: device)
+                .encode(commandBuffer: commandBuffer,
+                        sourceTexture: result,
+                        destinationTexture: destTexture)
         }
-        blit.copy(from: result, to: destTexture)
-        blit.endEncoding()
+
         commandBuffer.commit()
         commandBuffer.waitUntilCompleted()
 
@@ -191,7 +211,6 @@ final class UpscalerEffect: NSObject, FxTileableEffect {
 
         let engine: any UpscalerEngine
         if engineMode == 1 {
-            // MPS needs no async warmup
             engine = MPSUpscaler(scaleFactor: scale, device: device)
         } else {
             let cml = CoreMLUpscaler(scaleFactor: scale, device: device)
@@ -209,5 +228,31 @@ final class UpscalerEffect: NSObject, FxTileableEffect {
 
         engines[key] = engine
         return engine
+    }
+
+    private func appendLogEntry(engine: String, scale: Int, inputW: Int, inputH: Int,
+                                processingMs: Int, ok: Bool, error: String?, start: Date) {
+        var dict: [String: Any] = [
+            "ts": Int(start.timeIntervalSince1970),
+            "engine": engine,
+            "scale": scale,
+            "inputW": inputW,
+            "inputH": inputH,
+            "processingMs": processingMs,
+            "ok": ok
+        ]
+        if let error { dict["error"] = error }
+        guard let data = try? JSONSerialization.data(withJSONObject: dict),
+              let line = String(data: data, encoding: .utf8)
+        else { return }
+        let entry = (line + "\n").data(using: .utf8)!
+        let url = URL(fileURLWithPath: "/tmp/aiupscaler_debug.txt")
+        if let fh = try? FileHandle(forWritingTo: url) {
+            defer { try? fh.close() }
+            fh.seekToEndOfFile()
+            fh.write(entry)
+        } else {
+            try? entry.write(to: url)
+        }
     }
 }
