@@ -16,6 +16,11 @@ struct TileRegion {
     let upscaledInnerSize: CGSize
     /// Top-left corner in the output texture where this tile's content is placed.
     let outputOrigin: CGPoint
+    /// Per-side overlap widths in INPUT pixels (0 for border tiles on that side).
+    let leftOverlap: Int
+    let rightOverlap: Int
+    let topOverlap: Int
+    let bottomOverlap: Int
 }
 
 protocol UpscalerEngine: AnyObject {
@@ -25,4 +30,13 @@ protocol UpscalerEngine: AnyObject {
     func upscale(input: MTLTexture, commandBuffer: MTLCommandBuffer) throws -> MTLTexture
     /// Pre-loads model weights / MPS filters so first-frame latency is minimal.
     func warmup() async throws
+    /// Upscales multiple tiles. Default implementation calls `upscale` sequentially.
+    /// Engines that support batching (CoreML) should override this for efficiency.
+    func upscaleBatch(inputs: [MTLTexture], commandBuffer: MTLCommandBuffer) throws -> [MTLTexture]
+}
+
+extension UpscalerEngine {
+    func upscaleBatch(inputs: [MTLTexture], commandBuffer: MTLCommandBuffer) throws -> [MTLTexture] {
+        try inputs.map { try upscale(input: $0, commandBuffer: commandBuffer) }
+    }
 }
