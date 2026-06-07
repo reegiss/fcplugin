@@ -144,15 +144,25 @@ for scenario in scenarios {
         var times: [Double] = []
         // Warmup iteration (discarded)
         let wcb = commandQueue.makeCommandBuffer()!
-        _ = try? processor.process(input: inputTex, scaleFactor: scenario.scale,
-                                   engine: engine, commandBuffer: wcb)
+        do {
+            _ = try processor.process(input: inputTex, scaleFactor: scenario.scale,
+                                      engine: engine, commandBuffer: wcb)
+        } catch {
+            fputs("ERROR (warmup iteration): \(error)\n", stderr)
+            wcb.commit(); wcb.waitUntilCompleted()
+            return []
+        }
         wcb.commit(); wcb.waitUntilCompleted()
         // Timed iterations
         for _ in 0..<iterationCount {
             let ms = measureMs {
                 let cb = commandQueue.makeCommandBuffer()!
-                _ = try? processor.process(input: inputTex, scaleFactor: scenario.scale,
-                                           engine: engine, commandBuffer: cb)
+                do {
+                    _ = try processor.process(input: inputTex, scaleFactor: scenario.scale,
+                                              engine: engine, commandBuffer: cb)
+                } catch {
+                    fputs("ERROR (timed iteration): \(error)\n", stderr)
+                }
                 cb.commit(); cb.waitUntilCompleted()
             }
             times.append(ms)

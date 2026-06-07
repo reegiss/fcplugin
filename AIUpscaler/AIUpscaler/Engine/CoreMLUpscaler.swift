@@ -1,6 +1,7 @@
 import Metal
 import CoreML
 import Accelerate
+import MetalPerformanceShaders
 
 final class CoreMLUpscaler: UpscalerEngine {
 
@@ -12,6 +13,9 @@ final class CoreMLUpscaler: UpscalerEngine {
     private var pipelineBgraToFloat: MTLComputePipelineState?
     private var pipelineFloatToBgra: MTLComputePipelineState?
     private lazy var internalQueue: MTLCommandQueue = device.makeCommandQueue()!
+
+    // Fixed input dimensions expected by the compiled RealESRGAN CoreML models.
+    private static let modelTileSize = 512
 
     // Must match struct ConvertParams in TileUpscaler.metal
     private struct ConvertParams {
@@ -70,6 +74,8 @@ final class CoreMLUpscaler: UpscalerEngine {
 
     // Batch path: one Metal encode pass for all inputs, N CoreML predictions, one Metal encode pass for all outputs.
     // Reduces GPU commit/wait from N×2 to 2 regardless of tile count.
+    // Tiles that are not exactly modelTileSize×modelTileSize are resized to fit the fixed CoreML input shape,
+    // then the output is resized back to the expected (inputW*scale × inputH*scale) dimensions.
     func upscaleBatch(inputs: [MTLTexture], commandBuffer: MTLCommandBuffer) throws -> [MTLTexture] {
         guard let model else {
             throw UpscalerError.modelLoadFailed(
@@ -85,26 +91,33 @@ final class CoreMLUpscaler: UpscalerEngine {
 
         let n = inputs.count
         let scale = scaleFactor.rawValue
+        let tileSize = CoreMLUpscaler.modelTileSize
+        let modelOutSize = tileSize * scale
 
-        // Pre-allocate all shared input / output MTLBuffers
-        let inputBuffers = try inputs.map { tex in
-            try makeSharedBuffer(size: 3 * tex.height * tex.width * 2)
-        }
-        let outputBuffers = try inputs.map { tex in
-            try makeSharedBuffer(size: 3 * (tex.height * scale) * (tex.width * scale) * 2)
+        // Resize any tiles that don't match the model's fixed 512×512 input shape.
+        // Edge tiles and overlap-padded tiles commonly differ from 512×512.
+        let resizedInputs: [MTLTexture] = try inputs.map { tex in
+            if tex.width == tileSize && tex.height == tileSize { return tex }
+            return try mpsResize(tex, toWidth: tileSize, height: tileSize)
         }
 
-        // Single Metal CB: BGRA→float16 for all tiles
-        try batchConvert(inputs: zip(inputs, inputBuffers).map { ($0.0, $0.0.width, $0.0.height, $0.1) },
-                         pipeline: bgraToFloat, textureIsInput: true)
+        // Record original output sizes for final resize step.
+        let targetOutSizes: [(Int, Int)] = inputs.map { tex in
+            (tex.width * scale, tex.height * scale)
+        }
+
+        // Pre-allocate all shared input / output MTLBuffers at model dimensions.
+        let inputBuffers  = try (0..<n).map { _ in try makeSharedBuffer(size: 3 * tileSize    * tileSize    * 2) }
+        let outputBuffers = try (0..<n).map { _ in try makeSharedBuffer(size: 3 * modelOutSize * modelOutSize * 2) }
+
+        // Single Metal CB: BGRA→float16 for all (resized) tiles
+        try batchConvert(
+            inputs: zip(resizedInputs, inputBuffers).map { ($0.0, tileSize, tileSize, $0.1) },
+            pipeline: bgraToFloat, textureIsInput: true)
 
         // Wrap each buffer as MLMultiArray (zero-copy — buffer backing not copied)
-        let inputArrays = try zip(inputs, inputBuffers).map { (tex, buf) in
-            try wrapAsMLMultiArray(buf, width: tex.width, height: tex.height)
-        }
-        let outputArrays = try inputs.enumerated().map { (i, tex) in
-            try wrapAsMLMultiArray(outputBuffers[i], width: tex.width * scale, height: tex.height * scale)
-        }
+        let inputArrays  = try inputBuffers.map  { try wrapAsMLMultiArray($0, width: tileSize,     height: tileSize) }
+        let outputArrays = try outputBuffers.map { try wrapAsMLMultiArray($0, width: modelOutSize, height: modelOutSize) }
 
         // Sequential CoreML predictions with pre-allocated output backings (ANE writes to our buffers)
         for i in 0..<n {
@@ -116,16 +129,19 @@ final class CoreMLUpscaler: UpscalerEngine {
             _ = try model.prediction(from: features, options: opts)
         }
 
-        // Single Metal CB: float16→BGRA for all tiles
-        let outTextures = try inputs.map { tex in
-            try makeTexture(width: tex.width * scale, height: tex.height * scale)
-        }
+        // Single Metal CB: float16→BGRA for all tiles (at model output dimensions)
+        let modelOutTextures = try (0..<n).map { _ in try makeTexture(width: modelOutSize, height: modelOutSize) }
         let decodePairs = (0..<n).map { i in
-            (outTextures[i], outTextures[i].width, outTextures[i].height, outputBuffers[i])
+            (modelOutTextures[i], modelOutSize, modelOutSize, outputBuffers[i])
         }
         try batchConvert(inputs: decodePairs, pipeline: floatToBgra, textureIsInput: false)
 
-        return outTextures
+        // Resize each output to the expected (inputW*scale × inputH*scale) dimensions if needed.
+        return try (0..<n).map { i in
+            let (tw, th) = targetOutSizes[i]
+            if tw == modelOutSize && th == modelOutSize { return modelOutTextures[i] }
+            return try mpsResize(modelOutTextures[i], toWidth: tw, height: th)
+        }
     }
 
     // MARK: - Private helpers
@@ -214,13 +230,27 @@ final class CoreMLUpscaler: UpscalerEngine {
                              w: Int, h: Int, outW: Int, outH: Int,
                              bgraToFloat: MTLComputePipelineState,
                              floatToBgra: MTLComputePipelineState) throws -> MTLTexture {
-        let inputBuffer  = try makeSharedBuffer(size: 3 * h * w * 2)
-        let outputBuffer = try makeSharedBuffer(size: 3 * outH * outW * 2)
+        let tileSize = CoreMLUpscaler.modelTileSize
+        let modelOutSize = tileSize * scaleFactor.rawValue
 
-        try batchConvert(inputs: [(input, w, h, inputBuffer)], pipeline: bgraToFloat, textureIsInput: true)
+        // If the tile dimensions differ from the model's fixed 512×512 input, use MPS to resize.
+        // Tiles with overlap can be up to tileSize+2*overlap pixels; edge tiles may be smaller.
+        let modelInput: MTLTexture
+        if w == tileSize && h == tileSize {
+            modelInput = input
+        } else {
+            // Scale input to exactly 512×512 using Lanczos (best quality for downscale).
+            modelInput = try mpsResize(input, toWidth: tileSize, height: tileSize)
+        }
 
-        let inputArray  = try wrapAsMLMultiArray(inputBuffer, width: w, height: h)
-        let outputArray = try wrapAsMLMultiArray(outputBuffer, width: outW, height: outH)
+        let inputBuffer  = try makeSharedBuffer(size: 3 * tileSize * tileSize * 2)
+        let outputBuffer = try makeSharedBuffer(size: 3 * modelOutSize * modelOutSize * 2)
+
+        try batchConvert(inputs: [(modelInput, tileSize, tileSize, inputBuffer)],
+                         pipeline: bgraToFloat, textureIsInput: true)
+
+        let inputArray  = try wrapAsMLMultiArray(inputBuffer,  width: tileSize,    height: tileSize)
+        let outputArray = try wrapAsMLMultiArray(outputBuffer, width: modelOutSize, height: modelOutSize)
 
         let features = try MLDictionaryFeatureProvider(
             dictionary: ["input": MLFeatureValue(multiArray: inputArray)]
@@ -229,10 +259,35 @@ final class CoreMLUpscaler: UpscalerEngine {
         opts.outputBackings = ["output": outputArray]
         _ = try model.prediction(from: features, options: opts)
 
-        let outTexture = try makeTexture(width: outW, height: outH)
-        try batchConvert(inputs: [(outTexture, outW, outH, outputBuffer)],
+        // Decode the 1024×1024 CoreML output to a texture.
+        let modelOutTex = try makeTexture(width: modelOutSize, height: modelOutSize)
+        try batchConvert(inputs: [(modelOutTex, modelOutSize, modelOutSize, outputBuffer)],
                          pipeline: floatToBgra, textureIsInput: false)
-        return outTexture
+
+        // If the caller requested different output dimensions (because input was resized),
+        // scale the CoreML output back to outW × outH using MPS.
+        if outW == modelOutSize && outH == modelOutSize {
+            return modelOutTex
+        } else {
+            return try mpsResize(modelOutTex, toWidth: outW, height: outH)
+        }
+    }
+
+    // Synchronous MPS Lanczos resize using the engine's internal command queue.
+    private func mpsResize(_ input: MTLTexture, toWidth w: Int, height h: Int) throws -> MTLTexture {
+        let outTex = try makeTexture(width: w, height: h)
+        guard let cb = internalQueue.makeCommandBuffer() else {
+            throw UpscalerError.metalDeviceUnavailable
+        }
+        let scaler = MPSImageLanczosScale(device: device)
+        let scaleX = Double(w) / Double(input.width)
+        let scaleY = Double(h) / Double(input.height)
+        var transform = MPSScaleTransform(scaleX: scaleX, scaleY: scaleY, translateX: 0, translateY: 0)
+        withUnsafePointer(to: &transform) { scaler.scaleTransform = $0.pointee }
+        scaler.encode(commandBuffer: cb, sourceTexture: input, destinationTexture: outTex)
+        cb.commit()
+        cb.waitUntilCompleted()
+        return outTex
     }
 
     // MARK: - CPU fallback (used when Metal shaders unavailable)

@@ -22,19 +22,18 @@ mkdir -p "$BUILD_DIR"
 echo "▸ Compiling Metal shaders..."
 xcrun -sdk macosx metal -O2 \
   "$SRC/Shaders/TileUpscaler.metal" \
-  -o "$BUILD_DIR/TileUpscaler.air"
-xcrun -sdk macosx metallib \
-  "$BUILD_DIR/TileUpscaler.air" \
   -o "$BUILD_DIR/default.metallib"
 
 echo "▸ Compiling Swift sources..."
+# benchmark.swift must be named main.swift so swiftc treats it as the entry point
+cp "$REPO_ROOT/scripts/benchmark.swift" "$BUILD_DIR/main.swift"
 swiftc -O \
   "$SRC/Engine/CoreMLUpscaler.swift" \
   "$SRC/Engine/MPSUpscaler.swift" \
   "$SRC/Engine/UpscalerEngine.swift" \
   "$SRC/Error/UpscalerError.swift" \
   "$SRC/Tiling/TileProcessor.swift" \
-  "$REPO_ROOT/scripts/benchmark.swift" \
+  "$BUILD_DIR/main.swift" \
   -framework Metal \
   -framework MetalPerformanceShaders \
   -framework CoreML \
