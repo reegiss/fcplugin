@@ -66,9 +66,8 @@ var entry: [String: Any] = [
     "inferenceMs": inferenceMs,
     "ok": !usedFallback
 ]
-if usedFallback, let err = lastFallbackError {
-    entry["error"] = err.localizedDescription
-}
+// error is captured in the existing catch block that sets usedFallback=true
+// pass it as an optional String into the log helper
 // Append JSON line to /tmp/aiupscaler_debug.txt
 ```
 
@@ -80,7 +79,7 @@ if usedFallback, let err = lastFallbackError {
 
 A single test `testAIProducesDistinctOutput` that:
 
-1. **Generates a synthetic 512×512 `MTLTexture`** via a Metal compute shader — a gradient with sharp edges and fine detail (checkerboard + ramp). No external image file required.
+1. **Generates a synthetic 512×512 `MTLTexture`** filled from CPU via `texture.replace(region:mipmapLevel:withBytes:bytesPerRow:)` — a checkerboard pattern with 8×8 pixel blocks alternating black/white. No Metal compute shader or external image file required.
 
 2. **Processes with both engines:**
    - `CoreMLUpscaler(scaleFactor: .x2, computeUnits: .cpuAndGPU)` → `output_ai` (1024×1024)
