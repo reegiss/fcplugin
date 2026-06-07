@@ -283,7 +283,7 @@ final class CoreMLUpscaler: UpscalerEngine {
         let scaleX = Double(w) / Double(input.width)
         let scaleY = Double(h) / Double(input.height)
         var transform = MPSScaleTransform(scaleX: scaleX, scaleY: scaleY, translateX: 0, translateY: 0)
-        withUnsafePointer(to: &transform) { scaler.scaleTransform = $0.pointee }
+        withUnsafePointer(to: &transform) { scaler.scaleTransform = $0 }
         scaler.encode(commandBuffer: cb, sourceTexture: input, destinationTexture: outTex)
         cb.commit()
         cb.waitUntilCompleted()

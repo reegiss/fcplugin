@@ -155,23 +155,33 @@ for scenario in scenarios {
         wcb.commit(); wcb.waitUntilCompleted()
         // Timed iterations
         for _ in 0..<iterationCount {
+            var iterError: Error?
             let ms = measureMs {
                 let cb = commandQueue.makeCommandBuffer()!
                 do {
                     _ = try processor.process(input: inputTex, scaleFactor: scenario.scale,
                                               engine: engine, commandBuffer: cb)
                 } catch {
-                    fputs("ERROR (timed iteration): \(error)\n", stderr)
+                    iterError = error
                 }
                 cb.commit(); cb.waitUntilCompleted()
             }
-            times.append(ms)
+            if let e = iterError {
+                fputs("ERROR (timed iteration): \(e)\n", stderr)
+            } else {
+                times.append(ms)
+            }
         }
         return times
     }
 
     let coremlTimes = runIterations(engine: coreml)
     let mpsTimes    = runIterations(engine: mps)
+
+    guard !coremlTimes.isEmpty, !mpsTimes.isEmpty else {
+        print("SKIPPED (engine error)")
+        continue
+    }
 
     let coremlAvg = coremlTimes.reduce(0, +) / Double(coremlTimes.count)
     let mpsAvg    = mpsTimes.reduce(0, +)    / Double(mpsTimes.count)
