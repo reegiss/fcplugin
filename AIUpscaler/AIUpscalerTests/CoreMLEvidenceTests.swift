@@ -14,7 +14,10 @@ import UniformTypeIdentifiers
     // saves 4 PNGs to /tmp/aiupscaler_evidence/, and asserts the AI output differs from MPS.
     @Test func aiProducesDistinctOutput() async throws {
         let device = device
-        let queue = try #require(device.makeCommandQueue())
+        guard let queue = device.makeCommandQueue() else {
+            Issue.record("Could not create MTLCommandQueue")
+            return
+        }
 
         // 1. Synthetic 512×512 BGRA checkerboard (8×8 px blocks)
         let inputTex = try makeCheckerboard(device: device, size: 512)
@@ -143,13 +146,13 @@ import UniformTypeIdentifiers
         return tex
     }
 
-    // Reads pixels from `texture` (via blit), builds a CGImage, writes PNG.
+    // Reads pixels from `texture` (via blit if needed), builds a CGImage, writes PNG.
     private func savePNG(texture: MTLTexture, device: MTLDevice,
                          queue: MTLCommandQueue, to url: URL) throws {
         let pixels = try readPixels(from: texture, device: device, queue: queue)
         let w = texture.width, h = texture.height
 
-        // BGRA → CGImage: premultipliedFirst + byteOrder32Little = BGRA on little-endian (Apple Silicon)
+        // BGRA → CGImage: declare as BGRA with premultiplied alpha so CoreGraphics maps correctly.
         let bitmapInfo = CGBitmapInfo(rawValue:
             CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
         let data = Data(pixels)
