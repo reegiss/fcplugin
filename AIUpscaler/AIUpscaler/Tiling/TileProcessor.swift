@@ -100,6 +100,9 @@ final class TileProcessor {
                 mipmapped: false
             )
             tileDesc.usage = [.shaderRead, .shaderWrite]
+            #if targetEnvironment(macCatalyst) || os(macOS)
+            tileDesc.storageMode = .shared
+            #endif
             guard let tileTexture = device.makeTexture(descriptor: tileDesc) else {
                 throw UpscalerError.metalDeviceUnavailable
             }

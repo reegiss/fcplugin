@@ -94,6 +94,9 @@ final class CoreMLUpscaler: UpscalerEngine {
             pixelFormat: .bgra8Unorm, width: width, height: height, mipmapped: false
         )
         desc.usage = [.shaderRead, .shaderWrite]
+        #if targetEnvironment(macCatalyst) || os(macOS)
+        desc.storageMode = .shared
+        #endif
         guard let texture = device.makeTexture(descriptor: desc) else {
             throw UpscalerError.metalDeviceUnavailable
         }
