@@ -9,9 +9,9 @@
 O plugin é um **bundle XPC out-of-process** empacotado dentro de uma aplicação wrapper. O Final Cut Pro nunca executa o código do plugin diretamente — ele se comunica via XPC com o processo isolado.
 
 ```
-AIUpscalerV2.app                        ← Wrapper Application (entrada no sistema)
+AIUpscaler.app                          ← Wrapper Application (entrada no sistema)
 └── Contents/
-    ├── MacOS/AIUpscalerV2              ← Binário wrapper (AppDelegate mínimo)
+    ├── MacOS/AIUpscaler                ← Binário wrapper (AppDelegate mínimo)
     └── PlugIns/
         └── AIUpscalerXPC.xpc           ← Serviço XPC (o plugin de verdade)
             └── Contents/
@@ -35,17 +35,17 @@ O FCP não varre diretórios. Ele consulta o PlugInKit, que mantém um índice d
 
 ```bash
 # 1. Copiar o .app para o local correto
-cp -R AIUpscalerV2.app ~/Library/Plug-Ins/FxPlug/
+cp -R AIUpscaler.app ~/Library/Plug-Ins/FxPlug/
 
 # 2. Registrar com LaunchServices
-lsregister -f -R -trusted ~/Library/Plug-Ins/FxPlug/AIUpscalerV2.app
+lsregister -f -R -trusted ~/Library/Plug-Ins/FxPlug/AIUpscaler.app
 
 # 3. OBRIGATÓRIO: lançar o wrapper uma vez para indexar o XPC
-open ~/Library/Plug-Ins/FxPlug/AIUpscalerV2.app
+open ~/Library/Plug-Ins/FxPlug/AIUpscaler.app
 
 # 4. Verificar registro
-pluginkit -m -i "info.regismelo.AIUpscalerV2.XPCService"
-# Saída esperada: info.regismelo.AIUpscalerV2.XPCService(1.1)
+pluginkit -m -i "info.regismelo.AIUpscaler.XPCService"
+# Saída esperada: info.regismelo.AIUpscaler.XPCService(1.1)
 ```
 
 **Passo 3 é frequentemente esquecido.** Sem lançar o wrapper, o PlugInKit nunca indexa o XPC e o FCP não encontra o plugin.
