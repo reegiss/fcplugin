@@ -7,6 +7,9 @@ final class TileProcessor {
     static let defaultOverlap  = 16
 
     private let device: MTLDevice
+    // Dedicated queue for synchronous tile-extraction blits required by CPU-inference engines (CoreML).
+    // Blit1 commits here and waits before engine.upscale() so getBytes() reads valid tile data.
+    private lazy var extractQueue: MTLCommandQueue = device.makeCommandQueue()!
 
     init(device: MTLDevice) {
         self.device = device
@@ -101,8 +104,12 @@ final class TileProcessor {
                 throw UpscalerError.metalDeviceUnavailable
             }
 
-            // 1. Blit input region → tile texture
-            let blit1 = commandBuffer.makeBlitCommandEncoder()!
+            // 1. Blit input region → tile texture via a dedicated committed CB.
+            // This synchronises GPU→CPU so CPU-inference engines (CoreML) can call getBytes() safely.
+            guard let extractCB = extractQueue.makeCommandBuffer(),
+                  let blit1 = extractCB.makeBlitCommandEncoder() else {
+                throw UpscalerError.metalDeviceUnavailable
+            }
             blit1.copy(
                 from: input,
                 sourceSlice: 0, sourceLevel: 0,
@@ -115,6 +122,8 @@ final class TileProcessor {
                 destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0)
             )
             blit1.endEncoding()
+            extractCB.commit()
+            extractCB.waitUntilCompleted()
 
             // 2. Upscale tile via engine
             let upscaled = try engine.upscale(input: tileTexture, commandBuffer: commandBuffer)
