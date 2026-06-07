@@ -5,15 +5,15 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>AIUpscalerXPCV2</string>
+	<string>AIUpscalerXPC</string>
 	<key>CFBundleExecutable</key>
-	<string>AIUpscalerXPCV2</string>
+	<string>AIUpscalerXPC</string>
 	<key>CFBundleIdentifier</key>
-	<string>info.regismelo.AIUpscalerV2.XPCService</string>
+	<string>info.regismelo.AIUpscaler.XPCService</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>AIUpscalerXPCV2</string>
+	<string>AIUpscalerXPC</string>
 	<key>CFBundlePackageType</key>
 	<string>XPC!</string>
 	<key>CFBundleShortVersionString</key>

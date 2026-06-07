@@ -1,10 +1,10 @@
 #!/bin/bash
 set -e
 
-APP_NAME="AIUpscalerV2"
-XPC_NAME="AIUpscalerXPCV2"
-BUNDLE_ID="info.regismelo.AIUpscalerV2"
-XPC_ID="info.regismelo.AIUpscalerV2.XPCService"
+APP_NAME="AIUpscaler"
+XPC_NAME="AIUpscalerXPC"
+BUNDLE_ID="info.regismelo.AIUpscaler"
+XPC_ID="info.regismelo.AIUpscaler.XPCService"
 DEST_DIR="/Applications"
 
 echo "--- Starting Plugin Registration ---"
