@@ -7,7 +7,7 @@ final class TileProcessor {
     static let defaultOverlap  = 16
 
     private let device: MTLDevice
-    private lazy var internalQueue: MTLCommandQueue = device.makeCommandQueue()!
+    private lazy var internalQueue: MTLCommandQueue? = device.makeCommandQueue()
 
     private var pipelineAccumulate: MTLComputePipelineState?
     private var pipelineNormalize:  MTLComputePipelineState?
@@ -110,7 +110,7 @@ final class TileProcessor {
 
         // Phase B: Upscale all tiles using a dedicated internal CB so the caller's commandBuffer
         // is never committed here. CoreML ignores the CB and uses its own; MPS encodes into it.
-        guard let upscaleCB = internalQueue.makeCommandBuffer() else {
+        guard let queue = internalQueue, let upscaleCB = queue.makeCommandBuffer() else {
             throw UpscalerError.metalDeviceUnavailable
         }
         let upscaledTiles = try engine.upscaleBatch(inputs: tileTextures, commandBuffer: upscaleCB)
@@ -149,8 +149,9 @@ final class TileProcessor {
     // Extracts every tile region from the input texture into its own .shared texture.
     // All blit copies are encoded into ONE command buffer — one GPU commit+wait total.
     private func extractAllTiles(from input: MTLTexture, regions: [TileRegion]) throws -> [MTLTexture] {
-        guard let cb   = internalQueue.makeCommandBuffer(),
-              let blit = cb.makeBlitCommandEncoder() else {
+        guard let queue = internalQueue,
+              let cb    = queue.makeCommandBuffer(),
+              let blit  = cb.makeBlitCommandEncoder() else {
             throw UpscalerError.metalDeviceUnavailable
         }
 
@@ -228,7 +229,7 @@ final class TileProcessor {
             throw UpscalerError.metalDeviceUnavailable
         }
 
-        guard let cb = internalQueue.makeCommandBuffer() else {
+        guard let queue = internalQueue, let cb = queue.makeCommandBuffer() else {
             throw UpscalerError.metalDeviceUnavailable
         }
 
@@ -316,8 +317,9 @@ final class TileProcessor {
     // Hard-blit fallback (original behavior): copies only the inner (non-overlap) region per tile.
     private func blitStitch(upscaledTiles: [MTLTexture], regions: [TileRegion],
                              into output: MTLTexture) throws {
-        guard let cb   = internalQueue.makeCommandBuffer(),
-              let blit = cb.makeBlitCommandEncoder() else {
+        guard let queue = internalQueue,
+              let cb    = queue.makeCommandBuffer(),
+              let blit  = cb.makeBlitCommandEncoder() else {
             throw UpscalerError.metalDeviceUnavailable
         }
         for (tile, region) in zip(upscaledTiles, regions) {

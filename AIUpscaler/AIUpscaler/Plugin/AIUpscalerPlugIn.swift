@@ -21,7 +21,9 @@ final class UpscalerEffect: NSObject, FxTileableEffect {
         var engineMode:  Int32   // 0 = AI (CoreML), 1 = Fast (MPS)
     }
 
+    private let stateLock = NSLock()
     private var engines: [String: any UpscalerEngine] = [:]
+    private var processors: [UInt64: TileProcessor] = [:]
 
     required init?(apiManager: PROAPIAccessing) {
         self.apiManager = apiManager
@@ -116,6 +118,7 @@ final class UpscalerEffect: NSObject, FxTileableEffect {
             throw UpscalerError.metalDeviceUnavailable
         }
 
+        try autoreleasepool {
         var usedFallback = false
         var fallbackError: String?
         let activeEngine: any UpscalerEngine
@@ -133,7 +136,12 @@ final class UpscalerEffect: NSObject, FxTileableEffect {
             activeEngine = try resolvedEngine(scale: scaleFactor, engineMode: 1, device: device)
         }
 
-        let processor = TileProcessor(device: device)
+        let processor: TileProcessor = stateLock.withLock {
+            if let p = processors[sourceImage.deviceRegistryID] { return p }
+            let p = TileProcessor(device: device)
+            processors[sourceImage.deviceRegistryID] = p
+            return p
+        }
         let result: MTLTexture
         let inferenceStart = Date()
 
@@ -183,6 +191,7 @@ final class UpscalerEffect: NSObject, FxTileableEffect {
         commandBuffer.waitUntilCompleted()
 
         updateStatus(engineMode: state.engineMode, fallback: usedFallback)
+        } // autoreleasepool
     }
 
     // MARK: - Private
@@ -207,7 +216,7 @@ final class UpscalerEffect: NSObject, FxTileableEffect {
 
     private func resolvedEngine(scale: ScaleFactor, engineMode: Int32, device: MTLDevice) throws -> any UpscalerEngine {
         let key = "\(engineMode)-\(scale.rawValue)"
-        if let cached = engines[key] { return cached }
+        if let cached = stateLock.withLock({ engines[key] }) { return cached }
 
         let engine: any UpscalerEngine
         if engineMode == 1 {
@@ -226,7 +235,7 @@ final class UpscalerEffect: NSObject, FxTileableEffect {
             engine = cml
         }
 
-        engines[key] = engine
+        stateLock.withLock { engines[key] = engine }
         return engine
     }
 
