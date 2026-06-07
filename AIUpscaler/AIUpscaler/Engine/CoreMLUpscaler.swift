@@ -1,5 +1,6 @@
 import Metal
 import CoreML
+import Accelerate
 
 final class CoreMLUpscaler: UpscalerEngine {
 
@@ -43,7 +44,7 @@ final class CoreMLUpscaler: UpscalerEngine {
         let scale = scaleFactor.rawValue
         let outW = w * scale, outH = h * scale
 
-        // Read texture → float32 RGB MLMultiArray (1, 3, H, W) normalized [0, 1]
+        // Read texture → Float32 RGB MLMultiArray (1, 3, H, W) normalized [0, 1]
         let inputArray = try textureToMultiArray(texture: input, width: w, height: h)
         let featureProvider = try MLDictionaryFeatureProvider(
             dictionary: ["input": MLFeatureValue(multiArray: inputArray)]
@@ -62,7 +63,6 @@ final class CoreMLUpscaler: UpscalerEngine {
 
     // MARK: - Private
 
-    // Reads BGRA texture → float32 MLMultiArray shape [1, 3, H, W], values in [0, 1]
     private func textureToMultiArray(texture: MTLTexture, width: Int, height: Int) throws -> MLMultiArray {
         let bytesPerPixel = 4
         let bytesPerRow = width * bytesPerPixel
@@ -75,20 +75,24 @@ final class CoreMLUpscaler: UpscalerEngine {
 
         let array = try MLMultiArray(shape: [1, 3, NSNumber(value: height), NSNumber(value: width)],
                                      dataType: .float32)
-        let ptr = array.dataPointer.bindMemory(to: Float32.self, capacity: 3 * height * width)
-        let rOff = 0, gOff = height * width, bOff = 2 * height * width
+        let ptr = array.dataPointer.bindMemory(to: Float32.self, capacity: array.count)
+        
+        let cStride = array.strides[1].intValue
+        let hStride = array.strides[2].intValue
+        let wStride = array.strides[3].intValue
+        
         for y in 0..<height {
             for x in 0..<width {
                 let src = y * bytesPerRow + x * bytesPerPixel
-                ptr[rOff + y * width + x] = Float32(bgra[src + 2]) / 255.0  // R (BGRA: B=0,G=1,R=2,A=3)
-                ptr[gOff + y * width + x] = Float32(bgra[src + 1]) / 255.0  // G
-                ptr[bOff + y * width + x] = Float32(bgra[src + 0]) / 255.0  // B
+                let idx = y * hStride + x * wStride
+                ptr[0 * cStride + idx] = Float32(bgra[src + 2]) / 255.0  // R
+                ptr[1 * cStride + idx] = Float32(bgra[src + 1]) / 255.0  // G
+                ptr[2 * cStride + idx] = Float32(bgra[src + 0]) / 255.0  // B
             }
         }
         return array
     }
 
-    // Writes float32 MLMultiArray [1, 3, H, W] → BGRA MTLTexture, values clamped to [0, 1]
     private func multiArrayToTexture(array: MLMultiArray, width: Int, height: Int) throws -> MTLTexture {
         let desc = MTLTextureDescriptor.texture2DDescriptor(
             pixelFormat: .bgra8Unorm, width: width, height: height, mipmapped: false
@@ -101,18 +105,46 @@ final class CoreMLUpscaler: UpscalerEngine {
             throw UpscalerError.metalDeviceUnavailable
         }
 
-        let ptr = array.dataPointer.bindMemory(to: Float32.self, capacity: 3 * height * width)
-        let rOff = 0, gOff = height * width, bOff = 2 * height * width
         let bytesPerRow = width * 4
         var bgra = [UInt8](repeating: 255, count: height * bytesPerRow)
-        for y in 0..<height {
-            for x in 0..<width {
-                let dst = y * bytesPerRow + x * 4
-                bgra[dst + 2] = UInt8(min(1.0, max(0.0, ptr[rOff + y * width + x])) * 255)
-                bgra[dst + 1] = UInt8(min(1.0, max(0.0, ptr[gOff + y * width + x])) * 255)
-                bgra[dst + 0] = UInt8(min(1.0, max(0.0, ptr[bOff + y * width + x])) * 255)
+        
+        let cStride = array.strides[1].intValue
+        let hStride = array.strides[2].intValue
+        let wStride = array.strides[3].intValue
+
+        if array.dataType == .float16 {
+            let count = array.count
+            var f32 = [Float](repeating: 0, count: count)
+            var src = vImage_Buffer(data: array.dataPointer, height: 1, width: UInt(count), rowBytes: count * 2)
+            var dst = vImage_Buffer(data: &f32, height: 1, width: UInt(count), rowBytes: count * 4)
+            vImageConvert_Planar16FtoPlanarF(&src, &dst, 0)
+
+            for y in 0..<height {
+                for x in 0..<width {
+                    let dstIdx = y * bytesPerRow + x * 4
+                    let idx = y * hStride + x * wStride
+                    bgra[dstIdx + 2] = UInt8(min(1.0, max(0.0, f32[0 * cStride + idx])) * 255)
+                    bgra[dstIdx + 1] = UInt8(min(1.0, max(0.0, f32[1 * cStride + idx])) * 255)
+                    bgra[dstIdx + 0] = UInt8(min(1.0, max(0.0, f32[2 * cStride + idx])) * 255)
+                }
             }
+        } else if array.dataType == .float32 {
+            let ptr = array.dataPointer.bindMemory(to: Float32.self, capacity: array.count)
+            for y in 0..<height {
+                for x in 0..<width {
+                    let dstIdx = y * bytesPerRow + x * 4
+                    let idx = y * hStride + x * wStride
+                    bgra[dstIdx + 2] = UInt8(min(1.0, max(0.0, ptr[0 * cStride + idx])) * 255)
+                    bgra[dstIdx + 1] = UInt8(min(1.0, max(0.0, ptr[1 * cStride + idx])) * 255)
+                    bgra[dstIdx + 0] = UInt8(min(1.0, max(0.0, ptr[2 * cStride + idx])) * 255)
+                }
+            }
+        } else {
+            throw UpscalerError.modelLoadFailed(
+                underlying: NSError(domain: "CoreMLUpscaler", code: 3, userInfo: [NSLocalizedDescriptionKey: "Unsupported output data type"])
+            )
         }
+
         texture.replace(region: MTLRegion(origin: .init(x: 0, y: 0, z: 0),
                                           size: .init(width: width, height: height, depth: 1)),
                         mipmapLevel: 0, withBytes: bgra, bytesPerRow: bytesPerRow)
