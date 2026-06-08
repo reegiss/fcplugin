@@ -1,0 +1,15 @@
+#!/bin/bash
+# preinstall — Remove previous installation before upgrade
+
+set -euo pipefail
+
+PLUGIN_PATH="/Library/Plug-Ins/FxPlug/AIUpscaler.app"
+
+if [[ -d "$PLUGIN_PATH" ]]; then
+    # Terminate if running
+    pkill -x AIUpscaler 2>/dev/null || true
+    sleep 1
+    rm -rf "$PLUGIN_PATH"
+fi
+
+exit 0

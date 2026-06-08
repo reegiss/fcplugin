@@ -15,7 +15,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "ACC77A6E2FD37A3C00993982"
-               BuildableName = "AIUpscalerXPCV2.pluginkit"
+               BuildableName = "AIUpscalerXPC.pluginkit"
                BlueprintName = "XPC Service"
                ReferencedContainer = "container:AIUpscaler.xcodeproj">
             </BuildableReference>

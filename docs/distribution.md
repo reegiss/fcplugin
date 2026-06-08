@@ -1,229 +1,215 @@
-# Distribution Guide
+# Distribution Guide — AI Upscaler for Final Cut Pro
 
-## Bundle Structure
+**Versão:** 1.1 | **Atualizado:** 2026-06-07
 
-O plugin é distribuído como `AIUpscaler.app` — uma aplicação macOS padrão que contém o XPC service do FxPlug embutido.
+Pipeline completo: build → assinar → notarizar → PKG → DMG.
+
+---
+
+## Visão geral do pipeline
+
+```
+xcodebuild (Release, arm64)
+    │
+    ▼
+codesign --verify --deep          ← valida assinatura Developer ID
+    │
+    ▼
+Montar payload PKG
+    ├── /Library/Plug-Ins/FxPlug/AIUpscaler.app
+    └── /Library/Application Support/AI Upscaler/AI Upscaler.moef
+    │
+    ▼
+pkgbuild (component package)      ← assina com Developer ID Installer
+    │
+    ▼
+productbuild (distribution .pkg)  ← injeta Distribution.xml + Resources
+    │
+    ▼
+notarytool submit --wait          ← submete para servidores Apple (~2 min)
+    │
+    ▼
+stapler staple                    ← grafa ticket de notarização no .pkg
+    │
+    ▼
+hdiutil create                    ← empacota em DMG comprimido
+    │
+    ▼
+dist/AIUpscaler-1.1.dmg  ✓
+```
+
+---
+
+## Pré-requisitos
+
+### Certificados (Keychain)
+
+| Certificado | Usado por | Como obter |
+|---|---|---|
+| `Developer ID Application: ...` | Xcode build (sign .app) | developer.apple.com → Certificates |
+| `Developer ID Installer: ...` | pkgbuild + productbuild | developer.apple.com → Certificates |
+
+Verificar presença:
+```bash
+security find-identity -v -p codesigning | grep "Developer ID Application"
+security find-identity -v -p basic      | grep "Developer ID Installer"
+```
+
+### Credenciais para notarização (uma vez)
+
+```bash
+./scripts/setup_notarytool.sh
+# Segue prompt interativo; armazena no keychain como perfil "AIUpscaler"
+```
+
+---
+
+## Estrutura de arquivos
+
+```
+scripts/
+  build_pkg.sh                    ← pipeline principal (executar este)
+  setup_notarytool.sh             ← configuração inicial do keychain
+  pkg/
+    Distribution.xml              ← layout do installer macOS
+    scripts/
+      preinstall                  ← remove instalação anterior
+      postinstall                 ← lsregister + PlugInKit + Motion template
+    Resources/
+      welcome.html                ← tela de boas-vindas do installer
+      license.rtf                 ← licença de uso
+      background.png              ← imagem de fundo (opcional — colocar aqui)
+templates/
+  AI Upscaler.moef                ← Motion template (versionado aqui)
+dist/                             ← output do pipeline (gitignored)
+  AIUpscaler-1.1.pkg
+  AIUpscaler-1.1.dmg
+```
+
+---
+
+## Executar o pipeline
+
+### Build completo (com notarização + DMG)
+
+```bash
+DEVELOPER_ID_APP="Developer ID Application: Regis Melo (XXXXXXXXXX)" \
+DEVELOPER_ID_INSTALLER="Developer ID Installer: Regis Melo (XXXXXXXXXX)" \
+NOTARYTOOL_PROFILE="AIUpscaler" \
+VERSION="1.1" \
+./scripts/build_pkg.sh
+```
+
+### Build rápido para teste local (sem notarização, sem DMG)
+
+```bash
+DEVELOPER_ID_APP="Developer ID Application: Regis Melo (XXXXXXXXXX)" \
+DEVELOPER_ID_INSTALLER="Developer ID Installer: Regis Melo (XXXXXXXXXX)" \
+VERSION="1.1" \
+./scripts/build_pkg.sh --skip-notarize --skip-dmg
+```
+
+### Apenas PKG, sem DMG
+
+```bash
+./scripts/build_pkg.sh --skip-dmg
+```
+
+---
+
+## O que o postinstall faz
+
+O script `scripts/pkg/scripts/postinstall` roda como root após a instalação do payload:
+
+1. **`lsregister`** — registra o `.app` com LaunchServices (necessário para o macOS reconhecer o bundle).
+
+2. **`open AIUpscaler.app`** — lança o wrapper uma vez e encerra em seguida. Isso é obrigatório: sem ele, o PlugInKit nunca indexa o XPC Service e o FCP não encontra o plugin.
+
+3. **Motion template** — copia `AI Upscaler.moef` de `/Library/Application Support/AI Upscaler/` para `~/Movies/Motion Templates.localized/Effects.localized/AI Upscaler.localized/` do usuário logado.
+
+Sem os passos 2 e 3, o plugin instala mas não aparece no FCP.
+
+---
+
+## O que o installer instala
+
+| Destino | Conteúdo |
+|---|---|
+| `/Library/Plug-Ins/FxPlug/AIUpscaler.app` | Plugin completo (XPC service + modelos CoreML) |
+| `/Library/Application Support/AI Upscaler/AI Upscaler.moef` | Template temporário (copiado ao home no postinstall) |
+| `~/Movies/Motion Templates.localized/…/AI Upscaler.moef` | Template do Motion (copiado pelo postinstall) |
+
+**Requer admin.** O installer pede senha de administrador porque escreve em `/Library/`.
+
+---
+
+## Estrutura do bundle
 
 ```
 AIUpscaler.app/
 └── Contents/
-    ├── MacOS/
-    │   └── AIUpscaler                          ← wrapper app executable
-    ├── Resources/
-    │   ├── realesrgan_2x.mlmodelc/             ← modelos (ver nota abaixo)
-    │   └── realesrgan_4x.mlmodelc/
+    ├── MacOS/AIUpscaler                ← wrapper mínimo
+    ├── Info.plist
     └── PlugIns/
-        └── AIUpscaler XPC Service.pluginkit/   ← plugin real (descoberto pelo FCP via PlugInKit)
+        └── AIUpscalerXPC.xpc/
             └── Contents/
-                ├── Info.plist                  ← contém ProPlugPlugInList, PlugInKit
-                ├── MacOS/
-                │   └── AIUpscaler XPC Service  ← executável do plugin
-                ├── Frameworks/
-                │   ├── FxPlug.framework/
-                │   └── PluginManager.framework/
-                └── Resources/
-                    ├── default.metallib
-                    ├── realesrgan_2x.mlmodelc/  ← modelos usados em runtime
-                    └── realesrgan_4x.mlmodelc/
-```
-
-> **Nota sobre modelos duplicados:** Os modelos aparecem tanto em `AIUpscaler.app/Contents/Resources/` (Wrapper Application) quanto em `AIUpscaler XPC Service.pluginkit/Contents/Resources/` (XPC Service). O Xcode emite `warning: Skipping duplicate build file` — é esperado. O XPC Service carrega os modelos via `Bundle(for: CoreMLUpscaler.self)`, que resolve para o bundle do XPC Service. A cópia no Wrapper é redundante mas inofensiva.
-
----
-
-## 1. Build Release
-
-```bash
-xcodebuild build \
-  -target "Wrapper Application" \
-  -project AIUpscaler/AIUpscaler.xcodeproj \
-  -configuration Release \
-  -destination 'platform=macOS' \
-  | tail -5
-```
-
-Output esperado: `** BUILD SUCCEEDED **`
-
-O produto fica em:
-```
-~/Library/Developer/Xcode/DerivedData/AIUpscaler-*/Build/Products/Release/AIUpscaler.app
-```
-
-Atalho para encontrar:
-```bash
-find ~/Library/Developer/Xcode/DerivedData -path "*/Release/AIUpscaler.app" -type d 2>/dev/null | head -1
+                ├── MacOS/AIUpscalerXPC ← lógica do plugin
+                ├── Info.plist           ← PlugInKit + ProPlugPlugInList
+                ├── Resources/
+                │   ├── realesrgan_2x.mlmodelc
+                │   ├── realesrgan_4x.mlmodelc
+                │   └── default.metallib
+                └── Frameworks/
+                    ├── FxPlug.framework
+                    └── PluginManager.framework
 ```
 
 ---
 
-## 2. Instalação Local (Desenvolvimento / QA)
-
-O FCP usa o diretório `Application Support/Plug-ins/ProPlug` dentro do seu container de sandbox — **não** o `~/Library/Plug-Ins/FxPlug/` que a documentação antiga do FxPlug menciona.
-
-### Instalar para o usuário atual
+## Verificação pós-instalação
 
 ```bash
-APP=$(find ~/Library/Developer/Xcode/DerivedData -path "*/Release/AIUpscaler.app" -type d 2>/dev/null | head -1)
-# Usar o build local se DerivedData estiver vazio:
-# APP=AIUpscaler/build/Release/AIUpscaler.app
+# 1. Verificar que o plugin está registrado no PlugInKit
+pluginkit -m -i "info.regismelo.AIUpscaler.XPCService"
+# Esperado: info.regismelo.AIUpscaler.XPCService(1.1)
 
-INSTALL_DIR=~/Library/Containers/com.apple.FinalCutApp/Data/Library/Application\ Support/Plug-ins/ProPlug
-mkdir -p "$INSTALL_DIR"
-ditto "$APP" "$INSTALL_DIR/AIUpscaler.app"
-```
+# 2. Verificar assinatura do .app instalado
+codesign --verify --deep --strict --verbose=2 \
+    /Library/Plug-Ins/FxPlug/AIUpscaler.app
 
-> **Importante:** usar `ditto` (não `cp -R`) para preservar atributos estendidos e manter a assinatura de código válida.
+# 3. Verificar assinatura do .pkg
+pkgutil --check-signature dist/AIUpscaler-1.1.pkg
 
-### Verificar assinatura após instalar
-
-```bash
-codesign --verify --deep --strict \
-  ~/Library/Containers/com.apple.FinalCutApp/Data/Library/Application\ Support/Plug-ins/ProPlug/AIUpscaler.app \
-  && echo "OK"
-```
-
-### Verificar que o XPC service foi carregado pelo FCP
-
-Após abrir o FCP:
-```bash
-pgrep -la AIUpscaler
-```
-
-Output esperado:
-```
-12345 AIUpscaler XPC Service
-```
-
-Se aparecer, o FCP encontrou e iniciou o plugin. Abrir o painel de Effects (⌘5) e buscar "AI Upscaler" em Video Effects.
-
----
-
-## 3. Code Signing (Distribuição para Outros Usuários)
-
-O build de debug usa `CODE_SIGN_IDENTITY = Apple Development` (válido apenas na sua máquina). Para distribuir:
-
-### Opção A: Developer ID (distribuição direta, sem App Store)
-
-Requer conta Apple Developer paga. Na Xcode, em cada target:
-- **Signing & Capabilities → Signing Certificate:** `Developer ID Application`
-
-Ou via linha de comando:
-```bash
-xcodebuild build \
-  -target "Wrapper Application" \
-  -project AIUpscaler/AIUpscaler.xcodeproj \
-  -configuration Release \
-  CODE_SIGN_IDENTITY="Developer ID Application: Seu Nome (TEAM_ID)" \
-  CODE_SIGN_STYLE=Manual \
-  DEVELOPMENT_TEAM=TEAM_ID
-```
-
-Após o build, verificar a assinatura:
-```bash
-codesign -dvvv ~/Library/Plug-Ins/FxPlug/AIUpscaler.app
-codesign -dvvv ~/Library/Plug-Ins/FxPlug/AIUpscaler.app/Contents/PlugIns/"AIUpscaler XPC Service.pluginkit"
-```
-
-### Notarização (obrigatória para distribuição fora da App Store no macOS 13+)
-
-```bash
-# 1. Criar arquivo ZIP para envio
-ditto -c -k --keepParent AIUpscaler.app AIUpscaler.zip
-
-# 2. Enviar para notarização
-xcrun notarytool submit AIUpscaler.zip \
-  --apple-id "seu@email.com" \
-  --team-id "TEAM_ID" \
-  --password "@keychain:AC_PASSWORD" \
-  --wait
-
-# 3. Gravar ticket de notarização no bundle
-xcrun stapler staple AIUpscaler.app
-
-# 4. Verificar
-spctl -a -v AIUpscaler.app
+# 4. Verificar notarização
+spctl --assess --type install --verbose=2 dist/AIUpscaler-1.1.pkg
 ```
 
 ---
 
-## 4. Criando o Instalador
+## Troubleshooting
 
-### Opção A: DMG simples
-
-```bash
-# Criar DMG com o app e instrução de arrastar para a pasta certa
-hdiutil create -volname "AI Upscaler" \
-  -srcfolder AIUpscaler.app \
-  -ov -format UDZO \
-  AIUpscaler-1.0.dmg
-```
-
-O usuário arrasta `AIUpscaler.app` para `~/Library/Plug-Ins/FxPlug/` manualmente.
-
-### Opção B: PKG com instalação automática
-
-```bash
-# Instala diretamente em /Library/Plug-Ins/FxPlug/ (requer senha de admin)
-pkgbuild \
-  --component AIUpscaler.app \
-  --install-location "/Library/Plug-Ins/FxPlug" \
-  AIUpscaler-1.0.pkg
-```
-
-Embrulhar com `productbuild` para adicionar tela de licença, logo, etc.:
-```bash
-productbuild \
-  --distribution Distribution.xml \
-  --package-path . \
-  AIUpscaler-1.0-installer.pkg
-```
+| Sintoma | Causa provável | Solução |
+|---|---|---|
+| Plugin não aparece no FCP | PlugInKit não indexado | Verificar que o postinstall rodou; re-lançar AIUpscaler.app manualmente |
+| `lsregister` falha no postinstall | Caminho do framework mudou | Ajustar `LSREGISTER` no script postinstall |
+| Notarização retorna `Invalid` | Assinatura ad-hoc ou sem hardened runtime | Nunca usar `-` como identidade; verificar `ENABLE_HARDENED_RUNTIME=YES` |
+| DYLD crash ao abrir XPC | Team IDs diferentes entre .app e frameworks | Garantir que `${EXPANDED_CODE_SIGN_IDENTITY}` é usado nos build phases |
+| Motion template não aparece no FCP | `.moef` não copiado para `~/Movies/` | Verificar log do postinstall; copiar manualmente e reiniciar FCP |
+| `pkgutil: no such pkg` | PKG corrompido | Re-executar o pipeline do zero |
 
 ---
 
-## 5. Desinstalação
+## Checklist de release
 
-```bash
-# Remover da pasta do usuário
-rm -rf ~/Library/Plug-Ins/FxPlug/AIUpscaler.app
+Antes de entregar ao cliente:
 
-# Remover da pasta do sistema (requer sudo)
-sudo rm -rf /Library/Plug-Ins/FxPlug/AIUpscaler.app
-
-# Desregistrar do PlugInKit
-pluginkit -r ~/Library/Plug-Ins/FxPlug/AIUpscaler.app
-```
-
----
-
-## 6. Checklist de Distribuição
-
-- [ ] Build Release sem erros (`** BUILD SUCCEEDED **`)
-- [ ] Testes passando (`** TEST SUCCEEDED **`, 14/14)
-- [ ] Code signing com Developer ID (não Apple Development)
-- [ ] Notarização completa e ticket gravado (`xcrun stapler staple`)
-- [ ] `spctl -a -v AIUpscaler.app` → `accepted`
-- [ ] Teste em máquina limpa: instalar, abrir FCP, confirmar plugin aparece em "Video Effects → AI Upscaler → AI Upscaler"
-- [ ] Teste funcional: aplicar em clip 1080p, escala 2× e 4×, engines AI e Fast
-- [ ] Verificar que nenhuma conexão de rede é feita (Activity Monitor ou `nettop`)
-
----
-
-## Notas de Versão
-
-Para atualizar a versão do plugin, editar em dois lugares:
-
-1. `AIUpscaler/AIUpscaler/Plugin/Info.plist`:
-   ```xml
-   <key>version</key>
-   <string>1.1</string>  <!-- em ProPlugPlugInList -->
-   ```
-
-2. `AIUpscaler/AIUpscaler/Wrapper Application/Info.plist`:
-   ```xml
-   <key>CFBundleShortVersionString</key>
-   <string>1.1</string>
-   <key>CFBundleVersion</key>
-   <string>2</string>  <!-- incrementar a cada build de distribuição -->
-   ```
-
-O PlugInKit usa `CFBundleVersion` para resolver conflitos entre versões instaladas — versão maior vence.
+- [ ] `xcodebuild test` — todos os testes passando
+- [ ] Build Release sem warnings de signing
+- [ ] `codesign --verify --deep` no .app
+- [ ] `pkgutil --check-signature` no .pkg
+- [ ] `spctl --assess --type install` no .pkg (notarização válida)
+- [ ] Instalar em máquina limpa e verificar PlugInKit
+- [ ] Abrir FCP, confirmar efeito em **Efeitos > AI Upscaler**
+- [ ] Testar aplicação do efeito em clip de 1080p
+- [ ] Confirmar que o uninstall manual funciona (remover .app + .moef)
+- [ ] Atualizar `VERSION` no build e no `Info.plist` do Xcode

@@ -1,0 +1,63 @@
+#!/bin/bash
+# postinstall — PlugInKit registration + Motion template deployment
+#
+# macOS Installer calls this script as root after payload installation.
+# The script must:
+#   1. Register the .app with LaunchServices (lsregister)
+#   2. Launch the wrapper once so PlugInKit indexes the XPC service
+#   3. Copy the Motion template to the logged-in user's ~/Movies/ directory
+#
+# Without step 2, Final Cut Pro cannot find the plugin (PlugInKit requires
+# the host app to run at least once before the XPC bundle is indexed).
+
+set -euo pipefail
+
+PLUGIN_PATH="/Library/Plug-Ins/FxPlug/AIUpscaler.app"
+SUPPORT_MOEF="/Library/Application Support/AI Upscaler/AI Upscaler.moef"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister"
+
+# ── Detect logged-in user ────────────────────────────────────────────────────
+
+CURRENT_USER=$(stat -f "%Su" /dev/console 2>/dev/null || echo "")
+
+if [[ -z "$CURRENT_USER" || "$CURRENT_USER" == "root" ]]; then
+    CURRENT_USER=$(scutil <<< "show State:/Users/ConsoleUser" 2>/dev/null \
+        | awk '/Name :/ { print $3 }' || echo "")
+fi
+
+if [[ -z "$CURRENT_USER" || "$CURRENT_USER" == "root" ]]; then
+    echo "postinstall: could not determine logged-in user — skipping user-level steps"
+    USER_HOME=""
+else
+    USER_HOME=$(dscl . -read "/Users/$CURRENT_USER" NFSHomeDirectory 2>/dev/null \
+        | awk '{print $2}')
+    [[ -z "$USER_HOME" ]] && USER_HOME="/Users/$CURRENT_USER"
+fi
+
+# ── Step 1: Register with LaunchServices ─────────────────────────────────────
+
+"$LSREGISTER" -f -R -trusted "$PLUGIN_PATH"
+echo "postinstall: lsregister complete"
+
+# ── Step 2: Launch wrapper once (required for PlugInKit indexing) ─────────────
+
+if [[ -n "$CURRENT_USER" ]]; then
+    sudo -u "$CURRENT_USER" open "$PLUGIN_PATH" &
+    sleep 3
+    sudo -u "$CURRENT_USER" pkill -x AIUpscaler 2>/dev/null || true
+    echo "postinstall: PlugInKit registration triggered for user $CURRENT_USER"
+fi
+
+# ── Step 3: Install Motion template to user's Movies directory ────────────────
+
+if [[ -n "$USER_HOME" && -f "$SUPPORT_MOEF" ]]; then
+    TEMPLATE_DIR="$USER_HOME/Movies/Motion Templates.localized/Effects.localized/AI Upscaler.localized"
+    mkdir -p "$TEMPLATE_DIR"
+    cp -f "$SUPPORT_MOEF" "$TEMPLATE_DIR/AI Upscaler.moef"
+    chown -R "$CURRENT_USER" \
+        "$USER_HOME/Movies/Motion Templates.localized/Effects.localized/AI Upscaler.localized"
+    echo "postinstall: Motion template installed to $TEMPLATE_DIR"
+fi
+
+echo "postinstall: complete"
+exit 0

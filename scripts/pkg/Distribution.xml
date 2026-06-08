@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+
+    <title>AI Upscaler for Final Cut Pro</title>
+
+    <!-- Installer background (bottomleft, no scaling) -->
+    <background file="background.png"
+                mime-type="image/png"
+                alignment="bottomleft"
+                scaling="none"/>
+
+    <!-- Welcome screen -->
+    <welcome file="welcome.html" mime-type="text/html"/>
+
+    <!-- License -->
+    <license file="license.rtf" mime-type="text/rtf"/>
+
+    <!-- Require admin — plugin installs to /Library/Plug-Ins/FxPlug/ -->
+    <options require-scripts="true"
+             customize="never"
+             allow-external-scripts="no"
+             rootVolumeOnly="true"/>
+
+    <!-- arm64 only (Apple Silicon) -->
+    <volume-check>
+        <allowed-os-versions>
+            <os-version min="13.0"/>
+        </allowed-os-versions>
+    </volume-check>
+
+    <architecture>arm64</architecture>
+
+    <!-- Single-choice installer — no optional components -->
+    <pkg-ref id="info.regismelo.aiupscaler"/>
+
+    <choices-outline>
+        <line choice="default">
+            <line choice="info.regismelo.aiupscaler"/>
+        </line>
+    </choices-outline>
+
+    <choice id="default"/>
+    <choice id="info.regismelo.aiupscaler" visible="false" title="AI Upscaler">
+        <pkg-ref id="info.regismelo.aiupscaler"/>
+    </choice>
+
+    <!-- Version is substituted at build time by productbuild -->
+    <pkg-ref id="info.regismelo.aiupscaler"
+             version=""
+             onConclusion="none">AIUpscaler.pkg</pkg-ref>
+
+</installer-gui-script>

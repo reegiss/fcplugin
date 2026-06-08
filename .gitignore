@@ -1,2 +1,4 @@
 AIUpscaler/build
 .benchmark_build/
+.build_pkg/
+dist/
